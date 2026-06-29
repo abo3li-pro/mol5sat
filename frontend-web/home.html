@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Home — Mol5sat</title>
+<meta name="description" content="Your personalised educational summaries feed. Browse by curriculum, science, and more.">
+<meta name="keywords" content="ملخصات, summaries, educational, Egypt, تلخيص, مذاكرة, study, curriculum, school">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#FFB800">
+<meta name="color-scheme" content="dark light">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mol5sat">
+<link rel="manifest" href="/manifest.json">
+<link rel="canonical" href="https://mol5sat.org/home">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://mol5sat.org/home">
+<meta property="og:site_name" content="Mol5sat">
+<meta property="og:title" content="Home — Mol5sat — Mol5sat">
+<meta property="og:description" content="Your personalised educational summaries feed. Browse by curriculum, science, and more.">
+<meta property="og:image" content="https://mol5sat.org/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="ar_EG">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Home — Mol5sat — Mol5sat">
+<meta name="twitter:description" content="Your personalised educational summaries feed. Browse by curriculum, science, and more.">
+<meta name="twitter:image" content="https://mol5sat.org/og-image.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23100c00'/%3E%3Cstop offset='1' stop-color='%231c1400'/%3E%3C/linearGradient%3E%3ClinearGradient id='gld' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23FFB800'/%3E%3Cstop offset='1' stop-color='%23E85D04'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='22' fill='url(%23bg)'/%3E%3Crect x='16' y='14' width='40' height='58' rx='6' fill='none' stroke='url(%23gld)' stroke-width='4'/%3E%3Cline x1='16' y1='36' x2='56' y2='36' stroke='%23FFB800' stroke-width='2.5' stroke-dasharray='5 3' opacity='.6'/%3E%3Crect x='24' y='24' width='20' height='4' rx='2' fill='%23FFB800'/%3E%3Crect x='24' y='44' width='14' height='3' rx='1.5' fill='%23FFB800' opacity='.5'/%3E%3Ccircle cx='72' cy='34' r='18' fill='%23E85D04' opacity='.1'/%3E%3Ccircle cx='72' cy='34' r='12' fill='none' stroke='%23E85D04' stroke-width='3.5'/%3E%3Cpath d='M67 34l3.5 4L78 26' stroke='%23E85D04' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@300;400;500;600;700&family=Cairo:wght@400;500;600;700;900&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link rel="stylesheet" href="/web/styles.css">
+
+</head>
+<body>
+
+
+<!-- NAV -->
+<nav class="nav" id="nav">
+  <button class="nav-icon-btn" onclick="toggleSidebar()" aria-label="Menu"><i class="fas fa-bars"></i></button>
+  <div class="logo-mark" onclick="goHome()">
+    <div class="logo-emblem"></div>
+    <div class="logo-text"><span class="logo-name">Mol5sat</span><span class="logo-tag">ملخصات · Learn · Worldwide</span></div>
+  </div>
+  <div class="nav-search" id="searchWrap">
+    <button class="search-mode-btn m-curr" id="searchModeBtn" onclick="toggleSearchMode()">
+      <i class="fas fa-book-open"></i><span id="searchModeLabel">Curriculum</span>
+    </button>
+    <input id="searchInput" placeholder="Search summaries…" autocomplete="off"
+      oninput="onSearchInput(this.value)" onkeydown="if(event.key==='Enter')doSearch()">
+    <button class="nav-search-btn" onclick="doSearch()"><i class="fas fa-search"></i></button>
+  </div>
+  <div class="nav-right">
+    <button class="nav-icon-btn" id="mobSearchBtn" onclick="toggleMobSearch()"><i class="fas fa-search"></i></button>
+    <button class="nav-icon-btn" onclick="openNotifPanel()" id="notifBtn" style="position:relative">
+      <i class="fas fa-bell"></i>
+      <span class="notif-badge hidden" id="notifBadge"></span>
+    </button>
+    <button class="nav-icon-btn" onclick="toggleTheme()"><i class="fas fa-circle-half-stroke" id="themeIcon"></i></button>
+    <div class="nav-avatar" id="navAvatar" onclick="toggleUserMenu(event)">?</div>
+  </div>
+</nav>
+
+<!-- Mobile search -->
+<div class="mob-search" id="mobSearch">
+  <div class="mob-search-wrap">
+    <input class="mob-search-input" id="mobSearchInput" placeholder="Search summaries…"
+      oninput="onSearchInput(this.value)" onkeydown="if(event.key==='Enter')doSearch()">
+  </div>
+</div>
+
+<!-- Search suggestions -->
+<div class="search-suggestions hidden" id="searchSug"></div>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="si-sec">Navigation</div>
+  <div class="si-item active" id="si-home" onclick="navTo('home')"><i class="fas fa-house"></i><span class="si-lbl">Home</span></div>
+  <div class="si-item" id="si-search" onclick="navTo('search',{q:''})"><i class="fas fa-search"></i><span class="si-lbl">Search</span></div>
+  <div class="si-item" id="si-trending" onclick="navTo('trending')"><i class="fas fa-fire"></i><span class="si-lbl">Trending</span></div>
+  <div class="si-div"></div>
+  <div class="si-sec" id="si-sec-feeds">Feeds</div>
+  <div class="si-item" id="si-curr" onclick="navTo('home');setTimeout(()=>setTab('curriculum'),60)"><i class="fas fa-book-open"></i><span class="si-lbl">Curriculum Feed</span></div>
+  <div class="si-item" id="si-sci" onclick="navTo('home');setTimeout(()=>setTab('science'),60)"><i class="fas fa-flask"></i><span class="si-lbl">Science Feed</span><span class="si-dot"></span></div>
+  <div class="si-div" id="si-div-you"></div>
+  <div class="si-sec" id="si-sec-you">You</div>
+  <div class="si-item" id="si-profile" onclick="navTo('profile')"><i class="fas fa-user"></i><span class="si-lbl">Profile</span></div>
+  <div class="si-item" id="si-upload" onclick="openUploadModal()"><i class="fas fa-plus-circle"></i><span class="si-lbl">Upload Summary</span></div>
+  <div class="si-item" id="si-saved" onclick="navTo('saved')"><i class="fas fa-bookmark"></i><span class="si-lbl">Saved</span></div>
+  <div class="si-item" id="si-following" onclick="navTo('following')"><i class="fas fa-users"></i><span class="si-lbl">Following</span></div>
+  <div class="si-item" id="si-notif" onclick="navTo('notifications')"><i class="fas fa-bell"></i><span class="si-lbl">Notifications</span><span class="si-count hidden" id="siNotifBadge"></span></div>
+  <div class="si-item" id="si-earnings" onclick="navTo('earnings')"><i class="fas fa-coins"></i><span class="si-lbl">Earnings</span></div>
+  <div class="si-item" id="si-wallet" onclick="navTo('wallet')"><i class="fas fa-wallet"></i><span class="si-lbl">Wallet</span></div>
+  <div class="si-div" id="si-div-discover"></div>
+  <div class="si-sec" id="si-sec-discover">Discover</div>
+  <div class="si-item" id="si-subjects" onclick="navTo('subjects')"><i class="fas fa-atom"></i><span class="si-lbl">All Subjects</span></div>
+  <div class="si-div"></div>
+  <div class="si-sec" id="si-admin-sec" style="display:none">Admin</div>
+  <div class="si-item" id="si-admin" onclick="navTo('admin')" style="display:none"><i class="fas fa-shield-halved"></i><span class="si-lbl">Admin Panel</span></div>
+  <div class="si-item" id="si-supervisor" onclick="navTo('supervisor')" style="display:none"><i class="fas fa-eye"></i><span class="si-lbl">Supervision Queue</span></div>
+  <div class="si-item" onclick="navTo('settings')"><i class="fas fa-gear"></i><span class="si-lbl">Settings</span></div>
+  <div class="si-item" style="color:var(--coral)" onclick="openSiteReportModal()"><i class="fas fa-triangle-exclamation"></i><span class="si-lbl">Report Site Issue</span></div>
+</aside>
+
+
+<!-- GUEST BANNER (shown only when not logged in) -->
+<div class="guest-banner hidden" id="guestBanner">
+  <span class="guest-banner__icon">👀</span>
+  <div class="guest-banner__text">
+    <b>You're browsing as a guest.</b> Sign in for your personal curriculum feed, follow creators, upload, and more.
+  </div>
+  <div class="guest-banner__acts">
+    <button class="btn btn-primary btn-sm" onclick="openSignIn()"><i class="fas fa-right-to-bracket"></i> Sign In</button>
+    <button class="btn btn-ghost btn-sm" onclick="openSignUp()"><i class="fas fa-user-plus"></i> Sign Up</button>
+  </div>
+  <button class="guest-banner__close" onclick="dismissGuestBanner()" title="Dismiss"><i class="fas fa-times"></i></button>
+</div>
+
+<!-- MAIN -->
+<main class="main" id="main"><div id="appRoot"></div></main>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav" id="bottomNav">
+  <div class="bn-items">
+    <div class="bn-item active" id="bn-home" onclick="navTo('home')"><i class="fas fa-house"></i>Home</div>
+    <div class="bn-item" id="bn-search" onclick="navTo('search',{q:''})"><i class="fas fa-search"></i>Search</div>
+    <div class="bn-item" id="bn-upload" onclick="openUploadModal()"><i class="fas fa-plus-circle"></i>Upload</div>
+    <div class="bn-item" id="bn-notif" onclick="navTo('notifications')" style="position:relative">
+      <i class="fas fa-bell"></i>Alerts
+      <span class="bn-notif-badge hidden" id="bnNotifBadge"></span>
+    </div>
+    <div class="bn-item" id="bn-profile" onclick="navTo('profile')"><i class="fas fa-user"></i>Profile</div>
+    <div class="bn-item" id="bn-admin" onclick="navTo('admin')" style="display:none"><i class="fas fa-shield-halved"></i>Admin</div>
+  </div>
+</nav>
+
+
+<script src="/web/data.js"></script>
+<script src="/web/api.js"></script>
+<script src="/web/app.js"></script>
+<script src="/web/pages.js"></script>
+<script src="/web/ui.js"></script>
+<script src="/web/shared.js"></script>
+<script src="/web/router.js"></script>
+
+</body>
+</html>

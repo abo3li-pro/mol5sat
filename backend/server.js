@@ -72,6 +72,11 @@ app.use(helmet({
       scriptSrc:   ["'self'", "'unsafe-inline'", "'unsafe-eval'",
                     'https://cdnjs.cloudflare.com',
                     'https://fonts.googleapis.com'],
+      // scriptSrcAttr covers inline event handlers: onclick="...", onload="...", etc.
+      // These are used extensively across all 17 pages. Without this explicit directive
+      // browsers apply 'none' as the default even when scriptSrc has 'unsafe-inline',
+      // which blocks every button, card, search input and menu item silently.
+      scriptSrcAttr: ["'unsafe-inline'"],
       // JSON-LD structured data is type="application/ld+json" — not executable JS
       // so it does NOT need scriptSrc coverage
       styleSrc:    ["'self'", "'unsafe-inline'", // CSS needs inline for theme variables

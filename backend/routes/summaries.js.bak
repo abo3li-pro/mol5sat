@@ -47,21 +47,14 @@ const upload = multer({
 
 function enrichSummary(s) {
   if (!s) return null;
-  try {
-    try { s.tags = JSON.parse(s.tags || '[]'); } catch { s.tags = []; }
-    s.is_paid = !!s.is_paid; s.is_promoted = !!s.is_promoted; s.is_sponsored = !!s.is_sponsored;
-    s.approved = !!s.approved; s.membership_required = !!s.membership_required;
-    s.watermarked = !!s.watermarked;
-    s.companyAds = db.prepare('SELECT c.* FROM companies c JOIN summary_companies sc ON c.id=sc.company_id WHERE sc.summary_id=?').all(s.id);
-    const author = db.prepare('SELECT id,name,username,country,user_type,grade,followers,has_membership,membership_price,membership_perks FROM users WHERE id=?').get(s.author_id);
-    s.author = author?.name || s.author_name || ''; s.author_username = author?.username || ''; s.authorData = author || null;
-    return s;
-  } catch (err) {
-    // Log the real error so it's visible in Railway's log console
-    console.error('[enrichSummary] failed on summary id=' + (s?.id || '?') + ':', err.message);
-    // Return a safe minimal object rather than crashing the whole response
-    return { id: s?.id || null, title: s?.title || '', subject: s?.subject || '', _enrichError: err.message };
-  }
+  try { s.tags = JSON.parse(s.tags || '[]'); } catch { s.tags = []; }
+  s.is_paid = !!s.is_paid; s.is_promoted = !!s.is_promoted; s.is_sponsored = !!s.is_sponsored;
+  s.approved = !!s.approved; s.membership_required = !!s.membership_required;
+  s.watermarked = !!s.watermarked;
+  s.companyAds = db.prepare('SELECT c.* FROM companies c JOIN summary_companies sc ON c.id=sc.company_id WHERE sc.summary_id=?').all(s.id);
+  const author = db.prepare('SELECT id,name,username,country,user_type,grade,followers,has_membership,membership_price,membership_perks FROM users WHERE id=?').get(s.author_id);
+  s.author = author?.name || ''; s.author_username = author?.username || ''; s.authorData = author || null;
+  return s;
 }
 
 // ══════════════════════════════════════════════
@@ -70,27 +63,22 @@ function enrichSummary(s) {
 
 // GET /api/summaries/feed
 router.get('/feed', optionalAuth, (req, res) => {
-  try {
-    const u = req.user;
+  const u = req.user;
 
-    // Guest: return popular student summaries (science feed)
-    if (!u) {
-      const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC, s.views DESC' };
-      const order = orderMap[req.query.sort] || orderMap.recommended;
-      const rows = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' ORDER BY ${order} LIMIT 60`).all();
-      return res.json(rows.map(enrichSummary).filter(s => s && !s._enrichError));
-    }
-
-    const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC' };
+  // Guest: return popular student summaries (science feed)
+  if (!u) {
+    const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC, s.views DESC' };
     const order = orderMap[req.query.sort] || orderMap.recommended;
-    const primary = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' AND s.country=? AND s.grade=? ORDER BY ${order}`).all(u.country, u.grade);
-    const promoted = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience!='colleagues' AND s.is_promoted=1 AND s.country!=? ORDER BY ${order} LIMIT 10`).all(u.country);
-    const seen = new Set(primary.map(s => s.id));
-    res.json([...primary, ...promoted.filter(s => !seen.has(s.id))].map(enrichSummary).filter(s => s && !s._enrichError));
-  } catch (err) {
-    console.error('[GET /summaries/feed] error:', err.message, err.stack);
-    res.status(500).json({ error: 'Feed failed. Please try again.' });
+    const rows = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' ORDER BY ${order} LIMIT 60`).all();
+    return res.json(rows.map(enrichSummary));
   }
+
+  const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC' };
+  const order = orderMap[req.query.sort] || orderMap.recommended;
+  const primary = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' AND s.country=? AND s.grade=? ORDER BY ${order}`).all(u.country, u.grade);
+  const promoted = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience!='colleagues' AND s.is_promoted=1 AND s.country!=? ORDER BY ${order} LIMIT 10`).all(u.country);
+  const seen = new Set(primary.map(s => s.id));
+  res.json([...primary, ...promoted.filter(s => !seen.has(s.id))].map(enrichSummary));
 });
 
 // GET /api/summaries/pending
@@ -114,29 +102,22 @@ router.get('/user/likes', requireAuth, (req, res) => {
 
 // GET /api/summaries/
 router.get('/', optionalAuth, (req, res) => {
-  try {
-    const { subject, country, grade, lang, audience, sort, q } = req.query;
-    let where = ['s.approved=1']; let params = [];
-    if (subject) { where.push('s.subject=?'); params.push(subject); }
-    if (country) { where.push('s.country=?'); params.push(country); }
-    if (grade) { where.push('s.grade=?'); params.push(grade); }
-    if (lang) { where.push('s.lang=?'); params.push(lang); }
-    if (audience) {
-      where.push('s.audience=?'); params.push(audience);
-    } else if (!req.user) {
-      // Guests should not see colleagues/university content
-      where.push("s.audience != 'colleagues'");
-    }
-    if (q) { where.push('(s.title LIKE ? OR s.subject LIKE ? OR s.tags LIKE ? OR s.content LIKE ?)'); const lk=`%${q}%`; params.push(lk,lk,lk,lk); }
-    const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC, s.views DESC' };
-    const order = orderMap[sort] || orderMap.recommended;
-    const rows = db.prepare(`SELECT s.* FROM summaries s WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 200`).all(...params);
-    const enriched = rows.map(enrichSummary).filter(s => s && !s._enrichError);
-    res.json(enriched);
-  } catch (err) {
-    console.error('[GET /summaries] search error:', err.message, err.stack);
-    res.status(500).json({ error: 'Search failed. Please try again.' });
+  const { subject, country, grade, lang, audience, sort, q } = req.query;
+  let where = ['s.approved=1']; let params = [];
+  if (subject) { where.push('s.subject=?'); params.push(subject); }
+  if (country) { where.push('s.country=?'); params.push(country); }
+  if (grade) { where.push('s.grade=?'); params.push(grade); }
+  if (lang) { where.push('s.lang=?'); params.push(lang); }
+  if (audience) {
+    where.push('s.audience=?'); params.push(audience);
+  } else if (!req.user) {
+    // Guests should not see colleagues/university content
+    where.push("s.audience != 'colleagues'");
   }
+  if (q) { where.push('(s.title LIKE ? OR s.subject LIKE ? OR s.tags LIKE ? OR s.content LIKE ?)'); const lk=`%${q}%`; params.push(lk,lk,lk,lk); }
+  const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC, s.views DESC' };
+  const order = orderMap[sort] || orderMap.recommended;
+  res.json(db.prepare(`SELECT s.* FROM summaries s WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 200`).all(...params).map(enrichSummary));
 });
 
 // POST /api/summaries/

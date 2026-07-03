@@ -11,6 +11,7 @@ router.use(requireAdmin);
 
 // GET /api/admin/stats
 router.get('/stats', (req, res) => {
+  expirePromotions(); // clean up expired promotions each time the dashboard loads
   const totalUsers = db.prepare('SELECT COUNT(*) as c FROM users WHERE role != ?').get('admin').c;
   const totalSummaries = db.prepare('SELECT COUNT(*) as c FROM summaries').get().c;
   const approved = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE approved=1').get().c;
@@ -292,8 +293,6 @@ router.patch('/plagiarism/:id/resolve', (req, res) => {
 
   db.prepare('UPDATE plagiarism_cases SET verdict=?, ban_action=?, admin_note=?, resolved_at=? WHERE id=?')
     .run(verdict||cas.verdict, ban_action||'', admin_note||'', Math.floor(Date.now()/1000), req.params.id);
-
-  const suspect = db.prepare('SELECT * FROM users WHERE id=?').get(cas.suspect_id);
 
   if (verdict === 'thief' && ban_action && ban_action !== 'warn') {
     if (ban_action === 'delete_summary') {

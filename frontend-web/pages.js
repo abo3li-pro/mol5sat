@@ -1446,7 +1446,7 @@ async function renderAdmin(root) {
       <!-- REPORTS PANEL -->
       <div class="admin-panel" style="border-left:3px solid var(--coral)">
         <div class="admin-panel-head">
-          <h3><i class="fas fa-flag" style="color:var(--coral)"></i> User Reports <span class="spill s-banned">${plagArr.filter?plagArr.length:0}</span></h3>
+          <h3><i class="fas fa-flag" style="color:var(--coral)"></i> User Reports <span class="spill s-banned">${plagArr.length}</span></h3>
           <div style="display:flex;gap:6px">
             <button class="btn btn-surf btn-sm" onclick="aLoadReports('pending')">Pending</button>
             <button class="btn btn-surf btn-sm" onclick="aLoadReports('all')">All</button>

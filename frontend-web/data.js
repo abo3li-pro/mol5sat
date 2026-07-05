@@ -668,7 +668,7 @@ var MOCK_USERS = window.MOCK_USERS = [
     avatar:null, bannerColor:'linear-gradient(135deg,var(--surf3),var(--surf4))'
   },
   {
-    id:'u2',username:'ahmed_elsayed',name:'أحمد السيد',email:'ahmed@example.com',password:'ahmed123',role:'creator',userType:'student',
+    id:'u2',username:'ahmed_elsayed',name:'أحمد السيد',email:'ahmed@example.com',password:'pass123',role:'creator',userType:'student',
     country:'Egypt',school:'حكومي (Government)',grade:'الصف الثاني الثانوي',joined:'2024-06-12',
     status:'active',uploads:8,followers:4200,following:['u4','u6'],interests:['Physics','Mathematics'],
     notifications:[{id:'n1',text:'منى طاهر رفعت ملخص جديد: كيمياء الصف الأول',time:'2h ago',read:false,summaryId:'m16'}],

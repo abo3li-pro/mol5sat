@@ -5,8 +5,11 @@ let _userMenuOpen = false;
 
 function toggleTheme(){
   const h = document.documentElement;
-  h.dataset.theme = h.dataset.theme === 'dark' ? 'light' : 'dark';
-  document.getElementById('themeIcon').className = h.dataset.theme === 'dark' ? 'fas fa-circle-half-stroke' : 'fas fa-sun';
+  const next = h.dataset.theme === 'dark' ? 'light' : 'dark';
+  h.dataset.theme = next;
+  // Icon shows what clicking will switch TO — moon = go dark, sun = go light
+  document.getElementById('themeIcon').className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+  try { localStorage.setItem('mol5sat_theme', next); } catch(e){}
 }
 function toggleSidebar(){ document.body.classList.toggle('sb-open'); }
 function toggleMobSearch(){ document.getElementById('mobSearch').classList.toggle('open'); }
@@ -223,7 +226,7 @@ function openSignIn(){
       <div id="si-err" style="color:var(--coral);font-size:12px;margin-top:8px;display:none" role="alert"></div>
       <button class="btn btn-primary btn-block btn-lg" style="margin-top:18px" onclick="submitSignIn()"><i class="fas fa-right-to-bracket" aria-hidden="true"></i> Sign In</button>
       <div style="text-align:center;margin-top:14px;font-size:12px;color:var(--text2)">No account? <span style="color:var(--amber);cursor:pointer;font-weight:700" onclick="document.getElementById('siOverlay').remove();openSignUp()">Sign Up Free →</span></div>
-      <div class="info-box" style="margin-top:14px"><b>Demo:</b> admin@mol5sat.org / admin123 · ahmed@example.com / ahmed123</div>
+      <div class="info-box" style="margin-top:14px"><b>Demo accounts (password for all: <code>pass123</code>):</b><br>admin@mol5sat.org / admin123 · ahmed@example.com / pass123 · mona@example.com / pass123</div>
     </div>
   </div>`;
   document.body.appendChild(ov);
@@ -807,4 +810,9 @@ window.addEventListener('load', () => {
   const mobBtn = document.getElementById('mobSearchBtn');
   const checkMob = () => { if (mobBtn) mobBtn.style.display = window.innerWidth <= 768 ? 'flex' : 'none'; };
   checkMob(); window.addEventListener('resize', checkMob);
+
+  // Set the correct initial icon based on the actual active theme
+  const theme = document.documentElement.dataset.theme || 'light';
+  const icon = document.getElementById('themeIcon');
+  if (icon) icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
 });

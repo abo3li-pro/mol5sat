@@ -2,6 +2,17 @@
 <html lang="en" dir="ltr" data-theme="light">
 <head>
 <meta charset="UTF-8">
+<script>
+// Restore saved theme before first paint — prevents flash
+(function(){
+  try {
+    var t = localStorage.getItem('mol5sat_theme');
+    if (t === 'dark' || t === 'light') {
+      document.documentElement.dataset.theme = t;
+    }
+  } catch(e) {}
+})();
+</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Mol5sat — ملخصات · Educational Summaries Platform</title>
 <meta name="description" content="The best written educational summaries for every curriculum, subject, and country. Study smarter, not harder.">
@@ -60,7 +71,7 @@
       <i class="fas fa-bell"></i>
       <span class="notif-badge hidden" id="notifBadge"></span>
     </button>
-    <button class="nav-icon-btn" onclick="toggleTheme()"><i class="fas fa-circle-half-stroke" id="themeIcon"></i></button>
+    <button class="nav-icon-btn" onclick="toggleTheme()" aria-label="Toggle theme"><i class="fas fa-moon" id="themeIcon"></i></button>
     <div class="nav-avatar" id="navAvatar" onclick="toggleUserMenu(event)">?</div>
   </div>
 </nav>

@@ -364,7 +364,16 @@ const staticOpts = {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    } else if (/\.(js|css|woff2?|ttf|otf|png|jpg|webp|svg|ico)$/.test(filePath)) {
+    } else if (/\.(js|css)$/.test(filePath)) {
+      // IMPORTANT: these filenames never change between deploys (app.js stays
+      // app.js), so 'immutable' + long max-age meant browsers would silently
+      // keep running WEEK-OLD code after every deploy, with no way to tell
+      // from the server side that anything was wrong. must-revalidate forces
+      // a quick check with the server on every load (cheap 304 if unchanged),
+      // so a real deploy is never masked by a stale local cache again.
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    } else if (/\.(woff2?|ttf|otf|png|jpg|webp|svg|ico)$/.test(filePath)) {
+      // Fonts/images are safe to cache aggressively — they rarely change
       res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
     }
   },

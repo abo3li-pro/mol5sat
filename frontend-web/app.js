@@ -792,7 +792,7 @@ function cardHTML(s, tag = '') {
       <div class="card__footer">
         <span class="card__stat"><i class="fas fa-eye i-gold"></i> ${fmt(s.views)}</span>
         <span class="card__stat"><i class="fas fa-heart" style="color:var(--coral);font-size:11px"></i> ${fmt(s.likes)}</span>
-        <span class="card__stat"><span class="lang-pill">${s.lang.toUpperCase()}</span></span>
+        <span class="card__stat"><span class="lang-pill">${(s.lang || 'ar').toUpperCase()}</span></span>
         ${saveBtn}
       </div>
       ${followBtn ? `<div class="card__follow-row">${followBtn}${au?.hasMembership

@@ -52,14 +52,21 @@ function enrichSummary(s) {
     s.is_paid = !!s.is_paid; s.is_promoted = !!s.is_promoted; s.is_sponsored = !!s.is_sponsored;
     s.approved = !!s.approved; s.membership_required = !!s.membership_required;
     s.watermarked = !!s.watermarked;
+    // Sanitize string fields — null values crash template literals in cardHTML
+    s.lang    = s.lang    || 'ar';
+    s.title   = s.title   || '';
+    s.subject = s.subject || '';
+    s.grade   = s.grade   || '';
+    s.country = s.country || '';
+    s.school  = s.school  || '';
     s.companyAds = db.prepare('SELECT c.* FROM companies c JOIN summary_companies sc ON c.id=sc.company_id WHERE sc.summary_id=?').all(s.id);
     const author = db.prepare('SELECT id,name,username,country,user_type,grade,followers,has_membership,membership_price,membership_perks FROM users WHERE id=?').get(s.author_id);
-    s.author = author?.name || s.author_name || ''; s.author_username = author?.username || ''; s.authorData = author || null;
+    s.author = author?.name || s.author_name || '';
+    s.author_username = author?.username || '';
+    s.authorData = author || null;
     return s;
   } catch (err) {
-    // Log the real error so it's visible in Railway's log console
     console.error('[enrichSummary] failed on summary id=' + (s?.id || '?') + ':', err.message);
-    // Return a safe minimal object rather than crashing the whole response
     return { id: s?.id || null, title: s?.title || '', subject: s?.subject || '', _enrichError: err.message };
   }
 }

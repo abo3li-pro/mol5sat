@@ -140,7 +140,7 @@ function _ns(s) {
 
 // ── SESSION RESTORE ───────────────────────────────────────────
 // Called once on page load. Restores logged-in state from saved JWT.
-async function initAuth() {
+async function _realInitAuth() {
   const token = getToken();
   if (!token) return null;
 
@@ -231,11 +231,18 @@ function apiSignOut() {
   clearToken();
 }
 
-// ── WIRED doSignIn / doSignUp ─────────────────────────────────
+// ── WIRED doSignIn / doSignUp / initAuth ───────────────────────
 // These override the functions defined in app.js.
 // They must be defined AFTER app.js loads — see index.html script order.
 // We use a DOMContentLoaded trick to let app.js define them first, then we override.
 document.addEventListener('DOMContentLoaded', () => {
+  // Override initAuth — app.js's version is mock-only (checks a different,
+  // unused localStorage key and always returns false for real accounts),
+  // and would otherwise silently win here since it loads after this file,
+  // making every reload look like a fresh guest visit even with a valid
+  // session token already sitting in storage.
+  window.initAuth = _realInitAuth;
+
   // Override doSignIn
   window.doSignIn = async function () {
     const email    = (document.getElementById('si-email')?.value || '').trim().toLowerCase();
@@ -254,30 +261,47 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Override doSignUp
-  window.doSignUp = async function () {
-    const name     = (document.getElementById('su-name')?.value  || '').trim();
-    const email    = (document.getElementById('su-email')?.value || '').trim();
-    const password = document.getElementById('su-pass')?.value   || '';
+  window.doSignUp = async function (payload) {
+    let name, email, password, username, country, userType, school, grade, specialization, major, interests, profile_photo;
+
+    if (payload) {
+      // Called with a ready-made payload (ui.js's submitSignUp already
+      // validated the form and correctly determined user_type by checking
+      // which radio card is actually selected) — use it as-is.
+      ({ name, email, password, username, country, user_type: userType,
+         school, grade, specialization, major, interests, profile_photo } = payload);
+    } else {
+      // Fallback: read directly from the DOM. Determine user_type the same
+      // robust way submitSignUp does — check which radio card actually has
+      // the selected class — never from a module-level variable that
+      // nothing in the live code path keeps in sync.
+      name     = (document.getElementById('su-name')?.value  || '').trim();
+      email    = (document.getElementById('su-email')?.value || '').trim();
+      password = document.getElementById('su-pass')?.value   || '';
+      country  = document.getElementById('su-country')?.value || 'Egypt';
+      userType = document.getElementById('su-rc-colleague')?.classList.contains('sel-a') ? 'colleague' : 'student';
+      username = (document.getElementById('su-username')?.value || '').trim().toLowerCase()
+        || (name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 25) + '_' + Math.floor(Math.random() * 1000));
+      school         = userType === 'student'   ? (document.getElementById('su-school')?.value || '') : '';
+      grade          = userType === 'student'   ? (document.getElementById('su-grade')?.value  || '') : '';
+      specialization = userType === 'colleague' ? (document.getElementById('su-spec')?.value   || '') : '';
+      major          = userType === 'colleague' ? (document.getElementById('su-major')?.value  || '') : '';
+      interests = [...document.querySelectorAll('#suOverlay .chip.sel')].map(el => el.dataset.subj).filter(Boolean);
+      profile_photo = window._suPhotoDataUrl || '';
+    }
+
     if (!name || !email || !password) { toast('Please fill in all required fields', 'error', 'fa-exclamation'); return; }
-    const interests = [...document.querySelectorAll('#suOverlay .chip.sel')]
-      .map(el => el.dataset.subj).filter(Boolean);
-    const country  = document.getElementById('su-country')?.value || 'Egypt';
-    const userType = window._suType || 'student';
-    // Auto-generate username from name
-    const username = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 25)
-                   + '_' + Math.floor(Math.random() * 1000);
-    const payload = {
-      name, username, email, password,
-      country,
-      user_type:      userType,
-      school:         userType === 'student'   ? (document.getElementById('su-school')?.value || '') : '',
-      grade:          userType === 'student'   ? (document.getElementById('su-grade')?.value  || '') : '',
-      specialization: userType === 'colleague' ? (document.getElementById('su-spec')?.value   || '') : '',
-      major:          userType === 'colleague' ? (document.getElementById('su-major')?.value  || '') : '',
-      interests,
+
+    const finalPayload = {
+      name, username, email, password, country,
+      user_type: userType || 'student',
+      school: school || '', grade: grade || '',
+      specialization: specialization || '', major: major || '',
+      interests: interests || [],
+      profile_photo: profile_photo || '',
     };
     try {
-      const user = await apiSignUp(payload);
+      const user = await apiSignUp(finalPayload);
       STATE.currentUser = user; STATE.loggedIn = true;
       document.getElementById('suOverlay')?.remove();
       updateNavForUser();

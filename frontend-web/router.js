@@ -191,5 +191,18 @@
     }
 
     render();
+
+    // Handle password-reset links, which arrive as a URL fragment
+    // (e.g. mol5sat.org/#reset-password?token=abc123) since the email is
+    // sent from the backend before it knows the current page's route.
+    if (window.location.hash.startsWith('#reset-password')) {
+      const qs = window.location.hash.split('?')[1] || '';
+      const token = new URLSearchParams(qs).get('token');
+      if (token && typeof openResetPassword === 'function') {
+        openResetPassword(token);
+      }
+      // Clean the hash out of the URL without triggering navigation
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
   });
 })();

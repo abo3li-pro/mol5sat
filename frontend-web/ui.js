@@ -223,6 +223,7 @@ function openSignIn(){
         <div class="field"><label for="si-email">Email</label><input class="input" id="si-email" type="email" placeholder="your@email.com" autofocus autocomplete="email"></div>
         <div class="field"><label for="si-pass">Password</label><input class="input" id="si-pass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitSignIn()"></div>
       </div>
+      <div style="text-align:right;margin-top:6px"><span style="font-size:12px;color:var(--amber);cursor:pointer;font-weight:700" onclick="document.getElementById('siOverlay').remove();openForgotPassword()">Forgot password?</span></div>
       <div id="si-err" style="color:var(--coral);font-size:12px;margin-top:8px;display:none" role="alert"></div>
       <button class="btn btn-primary btn-block btn-lg" style="margin-top:18px" onclick="submitSignIn()"><i class="fas fa-right-to-bracket" aria-hidden="true"></i> Sign In</button>
       <div style="text-align:center;margin-top:14px;font-size:12px;color:var(--text2)">No account? <span style="color:var(--amber);cursor:pointer;font-weight:700" onclick="document.getElementById('siOverlay').remove();openSignUp()">Sign Up Free →</span></div>
@@ -242,6 +243,92 @@ async function submitSignIn(){
     // doSignIn (overridden by api.js) handles auth, STATE update, modal close, navigate, toast
     await doSignIn(email, pass);
   } catch (e) { errEl.textContent = e.message; errEl.style.display = ''; }
+}
+
+function openForgotPassword(){
+  closeAnyModal();
+  const ov = document.createElement('div'); ov.className = 'overlay'; ov.id = 'fpOverlay';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="modal modal--narrow" role="dialog" aria-modal="true" aria-label="Forgot password"><div class="modal-drag"></div>
+    <div class="modal-head"><div class="modal-title">🔑 Forgot Password</div><button class="modal-close" onclick="document.getElementById('fpOverlay').remove()" aria-label="Close"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+    <div class="modal-body" id="fpBody">
+      <p style="font-size:13px;color:var(--text2);margin-bottom:18px;line-height:1.6">Enter the email address associated with your account and we'll send you a reset link.</p>
+      <div class="fgrid"><div class="field"><label for="fp-email">Email Address</label><input class="input gf" id="fp-email" type="email" placeholder="your@email.com" autofocus autocomplete="email" onkeydown="if(event.key==='Enter')submitForgotPassword()"></div></div>
+      <div id="fp-err" style="color:var(--coral);font-size:12px;margin-top:8px;display:none" role="alert"></div>
+      <button class="btn btn-primary btn-block btn-lg" style="margin-top:18px" onclick="submitForgotPassword()"><i class="fas fa-paper-plane" aria-hidden="true"></i> Send Reset Link</button>
+      <div style="text-align:center;margin-top:14px;font-size:12px;color:var(--text2)">Remember your password? <span style="color:var(--amber);cursor:pointer;font-weight:700" onclick="document.getElementById('fpOverlay').remove();openSignIn()">Sign In →</span></div>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  setTimeout(() => document.getElementById('fp-email')?.focus(), 100);
+}
+
+async function submitForgotPassword(){
+  const email = (document.getElementById('fp-email')?.value || '').trim();
+  const errEl = document.getElementById('fp-err');
+  if (!email) { errEl.textContent = 'Please enter your email'; errEl.style.display = ''; return; }
+  const btn = document.querySelector('#fpOverlay .btn-primary');
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
+  try {
+    await api('POST', '/auth/forgot-password', { email });
+    const body = document.getElementById('fpBody');
+    if (body) {
+      body.innerHTML = `<div style="text-align:center;padding:20px 0">
+        <div style="font-size:48px;margin-bottom:16px">📧</div>
+        <div style="font-family:var(--fd);font-size:17px;font-weight:800;margin-bottom:8px;color:var(--gold)">Check your inbox!</div>
+        <p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:20px">If <b style="color:var(--text)">${esc(email)}</b> is registered, you'll receive a reset link within a few minutes. The link expires in 15 minutes.</p>
+        <button class="btn btn-surf btn-block" onclick="document.getElementById('fpOverlay').remove();openSignIn()"><i class="fas fa-arrow-left"></i> Back to Sign In</button>
+      </div>`;
+    }
+  } catch (e) {
+    errEl.textContent = e.message || 'Something went wrong. Please try again.';
+    errEl.style.display = '';
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
+}
+
+function openResetPassword(token){
+  closeAnyModal();
+  const ov = document.createElement('div'); ov.className = 'overlay'; ov.id = 'rpOverlay';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="modal modal--narrow" role="dialog" aria-modal="true" aria-label="Reset password"><div class="modal-drag"></div>
+    <div class="modal-head"><div class="modal-title">🔑 Choose a New Password</div><button class="modal-close" onclick="document.getElementById('rpOverlay').remove()" aria-label="Close"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+    <div class="modal-body" id="rpBody">
+      <input type="hidden" id="rp-token" value="${esc(token || '')}">
+      <div class="fgrid"><div class="field"><label for="rp-pass">New Password</label><input class="input gf" id="rp-pass" type="password" placeholder="At least 6 characters" autofocus autocomplete="new-password" onkeydown="if(event.key==='Enter')submitResetPassword()"></div></div>
+      <div id="rp-err" style="color:var(--coral);font-size:12px;margin-top:8px;display:none" role="alert"></div>
+      <button class="btn btn-primary btn-block btn-lg" style="margin-top:18px" onclick="submitResetPassword()"><i class="fas fa-key" aria-hidden="true"></i> Update Password</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  setTimeout(() => document.getElementById('rp-pass')?.focus(), 100);
+}
+
+async function submitResetPassword(){
+  const token = document.getElementById('rp-token')?.value || '';
+  const password = document.getElementById('rp-pass')?.value || '';
+  const errEl = document.getElementById('rp-err');
+  if (!password || password.length < 6) { errEl.textContent = 'Password must be at least 6 characters'; errEl.style.display = ''; return; }
+  const btn = document.querySelector('#rpOverlay .btn-primary');
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
+  try {
+    await api('POST', '/auth/reset-password', { token, new_password: password });
+    const body = document.getElementById('rpBody');
+    if (body) {
+      body.innerHTML = `<div style="text-align:center;padding:20px 0">
+        <div style="font-size:48px;margin-bottom:16px">✅</div>
+        <div style="font-family:var(--fd);font-size:17px;font-weight:800;margin-bottom:8px;color:var(--gold)">Password updated!</div>
+        <p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:20px">You can now sign in with your new password.</p>
+        <button class="btn btn-primary btn-block" onclick="document.getElementById('rpOverlay').remove();openSignIn()"><i class="fas fa-right-to-bracket"></i> Sign In</button>
+      </div>`;
+    }
+  } catch (e) {
+    errEl.textContent = e.message || 'Reset link is invalid or has expired. Please request a new one.';
+    errEl.style.display = '';
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
 }
 
 function openSignUp(){
@@ -589,7 +676,12 @@ async function submitUpload(){
     toast('Submitted for review! ✅ You\'ll be notified when approved.', 'success', 'fa-circle-check');
   } catch (e) { toast(e.message, 'error', 'fa-times'); }
 }
-function closeAnyModal(){ ['siOverlay','suOverlay','uploadOverlay','reportOverlay'].forEach(id => document.getElementById(id)?.remove()); }
+function closeAnyModal(){
+  ['siOverlay','suOverlay','uploadOverlay','reportOverlay','siteReportOverlay',
+   'fpOverlay','rpOverlay','cropOverlay',
+   'addMethodOverlay','banOverlay','plagActionOverlay','promoGateOverlay','promoOverlay','withdrawOverlay'
+  ].forEach(id => document.getElementById(id)?.remove());
+}
 
 // ── REPORT MODAL ──────────────────────────────────────────────
 var REPORT_REASONS = window.REPORT_REASONS = [

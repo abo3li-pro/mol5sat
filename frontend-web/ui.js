@@ -11,12 +11,19 @@ function toggleTheme(){
   document.getElementById('themeIcon').className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
   try { localStorage.setItem('mol5sat_theme', next); } catch(e){}
 }
-function toggleSidebar(){ document.body.classList.toggle('sb-open'); }
+function toggleSidebar(){
+  if (window.matchMedia('(min-width:1400px)').matches) {
+    document.body.classList.toggle('sb-collapsed');
+  } else {
+    document.body.classList.toggle('sb-open');
+  }
+}
 function toggleMobSearch(){ document.getElementById('mobSearch').classList.toggle('open'); }
 
 let _sugTimer;
 function onSearchInput(val){
   clearTimeout(_sugTimer);
+  if (!val) { showSearchHistory(); return; }
   _sugTimer = setTimeout(() => {
     if (!val || val.length < 2) { document.getElementById('searchSug').classList.add('hidden'); return; }
     const sug = []; const seen = new Set();
@@ -45,9 +52,73 @@ function selectSug(text){
 function doSearch(){
   const q = (document.getElementById('searchInput')?.value || document.getElementById('mobSearchInput')?.value || '').trim();
   document.getElementById('searchSug').classList.add('hidden');
+  addSearchHistory(q, STATE.searchMode);
   STATE.routeData = { q };
   navigate('search', { q });
 }
+
+// ── SEARCH HISTORY (YouTube-style: recent queries, per browser) ──────────
+const SEARCH_HISTORY_KEY = 'mol5sat_search_history';
+const SEARCH_HISTORY_MAX = 8;
+function getSearchHistory(){
+  try {
+    const list = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch (e) { return []; }
+}
+function addSearchHistory(q, mode){
+  q = (q || '').trim();
+  if (!q) return;
+  try {
+    let list = getSearchHistory().filter(h => !(String(h.q).toLowerCase() === q.toLowerCase() && h.mode === mode));
+    list.unshift({ q, mode: mode || 'curriculum', ts: Date.now() });
+    if (list.length > SEARCH_HISTORY_MAX) list = list.slice(0, SEARCH_HISTORY_MAX);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+function removeSearchHistoryItem(idx, ev){
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  try {
+    const list = getSearchHistory();
+    list.splice(idx, 1);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(list));
+  } catch (e) {}
+  showSearchHistory();
+}
+function clearSearchHistory(ev){
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  try { localStorage.removeItem(SEARCH_HISTORY_KEY); } catch (e) {}
+  document.getElementById('searchSug')?.classList.add('hidden');
+}
+function showSearchHistory(){
+  const el = document.getElementById('searchSug');
+  if (!el) return;
+  const list = getSearchHistory();
+  if (!list.length) { el.classList.add('hidden'); return; }
+  el.innerHTML = `<div class="sug-label" style="display:flex;align-items:center;justify-content:space-between;padding-right:14px">
+      <span>🕐 Recent Searches</span>
+      <span style="cursor:pointer;color:var(--amber);font-weight:700;font-size:10.5px" onclick="clearSearchHistory(event)">Clear all</span>
+    </div>` +
+    list.map((h, i) => `<div class="sug-item" onclick="selectHistoryItem('${String(h.q).replace(/'/g,"\\'")}','${h.mode}')">
+        <i class="fas fa-clock-rotate-left" aria-hidden="true"></i>
+        <span class="sk">${h.q}</span>
+        <span style="margin-left:auto;color:var(--text3);padding:2px 4px" onclick="removeSearchHistoryItem(${i},event)"><i class="fas fa-xmark"></i></span>
+      </div>`).join('');
+  el.classList.remove('hidden');
+}
+function selectHistoryItem(q, mode){
+  document.getElementById('searchSug').classList.add('hidden');
+  document.getElementById('searchInput').value = q;
+  document.getElementById('mobSearchInput').value = q;
+  if (typeof setSearchMode === 'function') setSearchMode(mode);
+  doSearch();
+}
+// Delegated so every page's search boxes get this without per-file edits.
+document.addEventListener('focusin', e => {
+  if (e.target && (e.target.id === 'searchInput' || e.target.id === 'mobSearchInput') && !e.target.value) {
+    showSearchHistory();
+  }
+});
 
 document.addEventListener('click', e => {
   if (!e.target.closest('#searchWrap') && !e.target.closest('#searchSug') && !e.target.closest('.mob-search'))
@@ -73,12 +144,7 @@ function toggleUserMenu(e){
     : `<div class="um-av">${initials}</div>`;
   const m = document.createElement('div'); m.className = 'user-menu'; m.id = 'userMenu';
   const isAdmin = u.role === 'admin';
-  const hasUploads = (() => {
-    if (typeof MOCK_SUMMARIES !== 'undefined') {
-      return MOCK_SUMMARIES.some(s => s.authorId === u.id && s.approved);
-    }
-    return (u.uploads || 0) > 0;
-  })();
+  const hasUploads = (u.uploads || 0) > 0;
   m.innerHTML = `
     <div class="um-section um-section--first">
       <div class="user-menu-header">
@@ -179,12 +245,7 @@ function updateNavForUser(){
   const restoreIds = ['si-sec-feeds','si-curr','si-sci','si-sec-you','si-profile','si-saved','si-following','si-notif','si-div-you','si-sec-discover','si-subjects','si-div-discover','bn-notif','bn-profile'];
   restoreIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = ''; });
   // Wallet & Earnings only visible if user has at least one approved upload
-  const hasUploads = (() => {
-    if (typeof MOCK_SUMMARIES !== 'undefined') {
-      return MOCK_SUMMARIES.some(s => s.authorId === u.id && s.approved);
-    }
-    return (u.uploads || 0) > 0;
-  })();
+  const hasUploads = (u.uploads || 0) > 0;
   ['si-earnings','si-wallet'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = hasUploads ? '' : 'none';

@@ -160,38 +160,33 @@ async function renderHome(root) {
     if (s === 'lang-fr') return [...arr].sort((a,b)=>(a.lang==='fr'?-1:1)-(b.lang==='fr'?-1:1));
     if (s === 'az') return [...arr].sort((a,b)=>(a.title||'').localeCompare(b.title||'',undefined,{sensitivity:'base'}));
     if (s === 'za') return [...arr].sort((a,b)=>(b.title||'').localeCompare(a.title||'',undefined,{sensitivity:'base'}));
-    if (s === 'date-asc' || s === 'oldest') return [...arr].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+    if (s === 'date-asc' || s === 'oldest') return [...arr].sort((a,b)=>_ts(a)-_ts(b));
     if (s === 'curriculum') return sortItems(arr, 'curriculum', u);
     if (s === 'advanced' || (s||'').startsWith('advanced:')) return sortItems(arr, s, u);
     return arr;
   };
 
-  // ── SCORE: how well a summary fits the current user ───────
-  // Returns 0–100. Used to silently float relevant cards up.
-  const scienceScore = (s) => {
-    if (!u) return (s.views||0) * 0.001 + (s.likes||0) * 0.005;
-    let sc = 0;
-    // 1. Exact curriculum match = strong boost (floats them to top)
-    if (s.country === u.country) sc += 25;
-    const uIdx = getGradeIndex(u.country, u.grade);
-    const sIdx = getGradeIndex(u.country, s.grade);
-    if (uIdx >= 0 && sIdx >= 0) {
-      const dist = Math.abs(uIdx - sIdx);
-      sc += dist === 0 ? 40 : dist === 1 ? 18 : dist === 2 ? 6 : 0;
-    }
-    if (u.school && s.school === u.school) sc += 8;
-    // 2. User's interests
-    if ((u.interests || []).includes(s.subject)) sc += 15;
-    // 3. Following
-    if ((u.following || []).includes(s.authorId)) sc += 12;
-    // 4. Language preference
-    const lp = getLangPreference(u.country);
-    sc += lp.indexOf(s.lang) === 0 ? 8 : lp.indexOf(s.lang) === 1 ? 3 : 0;
-    // 5. Promoted
-    if (s.isPromoted) sc += 5;
-    // 6. Engagement (minor)
-    sc += Math.log1p((s.views||0) + (s.likes||0) * 3) * 0.5;
-    return sc;
+  // ── SCIENCE FEED ORDERING ──────────────────────────────────
+  // "Neutral": interest-matched subjects float up first; within each of
+  // those two buckets, order by grade proximity to the user using a
+  // zig-zag — same grade, one grade up, one grade down, two up, two
+  // down, ... — with engagement as the final tiebreaker. Promoted always
+  // wins the top spot, same as everywhere else on the site.
+  const scienceOrder = (arr) => {
+    const interests = u?.interests || [];
+    const rankOf = (s) => {
+      const isPromoted = !!(s.is_promoted ?? s.isPromoted);
+      const isInterest = interests.includes(s.subject);
+      const zz = u ? _zigzagRank(gradeStepsVsUser(u, s)) : 0;
+      return { isPromoted, isInterest, zz };
+    };
+    return [...arr].sort((a, b) => {
+      const ra = rankOf(a), rb = rankOf(b);
+      if (ra.isPromoted !== rb.isPromoted) return ra.isPromoted ? -1 : 1;
+      if (ra.isInterest !== rb.isInterest) return ra.isInterest ? -1 : 1;
+      if (ra.zz !== rb.zz) return ra.zz - rb.zz;
+      return _engS(b) - _engS(a);
+    });
   };
 
   try {
@@ -209,6 +204,7 @@ async function renderHome(root) {
         (!u.grade || !s.grade || s.grade === u.grade)
       );
 
+      filtered = applyActiveFilters(filtered);
       filtered = applySort(filtered);
 
       const emptyHTML = `<div class="empty">
@@ -230,6 +226,7 @@ async function renderHome(root) {
           <span class="sec-more" onclick="navTo('search',{q:'',mode:'curriculum'})">See all →</span>
         </div>
         ${sortBarHTML(sort, 'setFeedSort', 'feed')}
+        ${filterBarHTML()}
         <div class="card-grid">${filtered.length
           ? filtered.map(s => cardHTML(s, s.is_promoted ? '⚡ Promoted' : '')).join('')
           : emptyHTML
@@ -237,47 +234,26 @@ async function renderHome(root) {
 
     } else {
       // ── SCIENCE FEED ─────────────────────────────────────────
+      // Curriculum-agnostic by design: the full pool of approved student
+      // content, not restricted by country/grade — grade is a *ranking*
+      // signal here (see scienceOrder / the 'advanced' sortItems branch),
+      // never a hard filter, except when Advanced mode is explicitly on.
       const isAdv = sort === 'advanced' || (sort||'').startsWith('advanced:');
-      const interests = isGuest ? [] : (u?.interests || []);
 
-      let allSummaries = await api('GET', `/summaries/feed?sort=recommended`) || [];
+      let allSummaries = await api('GET', `/summaries/feed?sort=recommended&mode=science`) || [];
+      allSummaries = applyActiveFilters(allSummaries);
 
-      // Advanced: pre-filter to ahead-of-user grades + university
-      if (isAdv && u) {
-        const targetPart = sort.includes(':') ? sort.split(':').slice(1).join(':') : 'all';
-        const userIdx = getGradeIndex(u.country, u.grade);
-        allSummaries = allSummaries.filter(s => {
-          const isUni = s.grade === 'University' || (s.grade||'').toLowerCase().includes('university');
-          if (targetPart === 'university') return isUni;
-          const sIdx = getGradeIndex(u.country, s.grade);
-          if (isUni) return true;
-          if (userIdx >= 0 && sIdx >= 0 && sIdx <= userIdx) return false;
-          if (targetPart !== 'all') {
-            const targetIdx = getGradeIndex(u.country, targetPart);
-            if (targetIdx >= 0 && sIdx > targetIdx) return false;
-          }
-          return true;
-        });
-      }
-
-      // Smart scoring: curriculum-match + interests silently bubbles cards up.
-      // No separate sections — one unified flat feed, scored then client-sorted.
       let scoredAll;
-      if (sort === 'recommended' || sort === 'curriculum') {
-        // Score every card and sort by score descending
-        scoredAll = [...allSummaries]
-          .map(s => ({ s, sc: scienceScore(s) }))
-          .sort((a, b) => b.sc - a.sc)
-          .map(x => x.s);
-      } else if (isAdv) {
-        scoredAll = applySort(allSummaries);
+      if (isAdv && u) {
+        scoredAll = sortItems(allSummaries, sort, u);
+      } else if (sort === 'recommended' || sort === 'curriculum') {
+        scoredAll = u ? scienceOrder(allSummaries) : applySort(allSummaries);
       } else {
         scoredAll = applySort(allSummaries);
       }
 
       // Tag cards that match the user's interests (silent badge, not a section)
       const tagCard = (s) => {
-        const isInterest = interests.includes(s.subject);
         const isCurr = u && s.country === u.country &&
           (!u.grade || !s.grade || s.grade === u.grade);
         const tag = isCurr ? 'Your Curriculum' : '';
@@ -291,6 +267,7 @@ async function renderHome(root) {
           .slice(0,40).map(s => cardHTML(s)).join('');
         root.innerHTML = `<div class="page">
           ${sortBarHTML(sort, 'setFeedSort', 'science')}
+          ${filterBarHTML()}
           <div class="card-grid">${guestCards ||
             `<div class="empty"><div class="empty-icon">🔬</div>
              <div class="empty-title">No summaries yet</div>
@@ -300,12 +277,14 @@ async function renderHome(root) {
         const cards = scoredAll.map(s => tagCard(s)).join('');
         root.innerHTML = `<div class="page">${tabToggle}
           ${sortBarHTML(sort, 'setFeedSort', 'science')}
+          ${filterBarHTML()}
           <div class="card-grid">${cards ||
             `<div class="empty"><div class="empty-icon">🔬</div>
              <div class="empty-title">No summaries found</div>
-             <div class="empty-sub">Try resetting the sort or switching tabs.</div>
+             <div class="empty-sub">Try resetting the sort/filters or switching tabs.</div>
              <div style="margin-top:14px;display:flex;gap:8px;justify-content:center">
                ${sort !== 'recommended' ? `<button class="btn btn-surf btn-sm" onclick="setFeedSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>` : ''}
+               ${(STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) ? `<button class="btn btn-surf btn-sm" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>` : ''}
                <button class="btn btn-ghost btn-sm" onclick="setTab('curriculum')"><i class="fas fa-book-open"></i> Curriculum Feed</button>
              </div></div>`
           }</div></div>`;
@@ -353,11 +332,12 @@ async function renderSearchPage(root) {
       if (sort === 'lang-fr') return [...arr].sort((a,b)=>(a.lang==='fr'?-1:1)-(b.lang==='fr'?-1:1)||0);
       if (sort === 'az')      return [...arr].sort((a,b)=>(a.title||'').localeCompare(b.title||'',undefined,{sensitivity:'base'}));
       if (sort === 'za')      return [...arr].sort((a,b)=>(b.title||'').localeCompare(a.title||'',undefined,{sensitivity:'base'}));
-      if (sort === 'oldest' || sort === 'date-asc') return [...arr].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+      if (sort === 'oldest' || sort === 'date-asc') return [...arr].sort((a,b)=>_ts(a)-_ts(b));
       if (sort === 'curriculum') return sortItems(arr, 'curriculum', u);
-      if (sort === 'advanced')   return sortItems(arr, 'advanced', u);
+      if (sort === 'advanced' || (sort||'').startsWith('advanced:')) return sortItems(arr, sort, u);
       return arr;
     };
+    results = applyActiveFilters(results);
     results = clientSort(results);
 
     // Mode label for header
@@ -372,6 +352,7 @@ async function renderSearchPage(root) {
       const suggestions = [];
       if (q) suggestions.push(`<button class="btn btn-surf btn-sm" onclick="STATE.routeData.q='';render()"><i class="fas fa-times"></i> Clear search</button>`);
       if (sort !== 'recommended') suggestions.push(`<button class="btn btn-surf btn-sm" onclick="setSearchSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>`);
+      if (STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) suggestions.push(`<button class="btn btn-surf btn-sm" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>`);
       if (canSwitchMode) suggestions.push(`<button class="btn btn-ghost btn-sm" onclick="STATE.searchMode='${otherMode}';STATE.activeTab='${otherMode}';document.getElementById('searchModeBtn')?.classList.toggle('m-curr');render()"><i class="fas fa-repeat"></i> Try ${otherMode} search</button>`);
       return `<div class="empty">
         <div class="empty-icon">🔍</div>
@@ -396,6 +377,7 @@ async function renderSearchPage(root) {
         ${!isGuest ? `<button class="btn btn-surf btn-sm" onclick="toggleSearchMode()"><i class="fas fa-repeat"></i> Switch to ${mode === 'curriculum' ? 'Science' : 'Curriculum'}</button>` : ''}
       </div>
       ${sortBarHTML(sort, 'setSearchSort', mode === 'science' ? 'science' : 'feed')}
+      ${filterBarHTML()}
       <div class="card-grid">${results.length
         ? results.map(s => cardHTML(s, s.is_promoted ? '⚡ Promoted' : '')).join('')
         : noResultsHTML()
@@ -1054,30 +1036,16 @@ async function renderTrending(root) {
   try {
     // Always fetch by views (the trending definition), then re-sort client-side
     let results = await api('GET', '/summaries?sort=views') || [];
+    results = applyActiveFilters(results);
 
-    // Advanced: pre-filter to ahead-of-user grades
     if (isAdv && u) {
-      const targetPart = sort.includes(':') ? sort.split(':').slice(1).join(':') : 'all';
-      const userIdx = getGradeIndex(u.country, u.grade);
-      results = results.filter(s => {
-        const isUni = _isUniversity(s.grade);
-        if (targetPart === 'university') return isUni;
-        const sIdx = getGradeIndex(u.country, s.grade);
-        if (isUni) return true;
-        if (userIdx >= 0 && sIdx >= 0 && sIdx <= userIdx) return false;
-        if (targetPart !== 'all') {
-          const targetIdx = getGradeIndex(u.country, targetPart);
-          if (targetIdx >= 0 && sIdx > targetIdx) return false;
-        }
-        return true;
-      });
       results = sortItems(results, sort, u);
     } else if (sort === 'likes') {
       results = [...results].sort((a,b) => (b.likes||0) - (a.likes||0));
     } else if (sort === 'date') {
-      results = [...results].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+      results = [...results].sort((a,b) => _ts(b) - _ts(a));
     } else if (sort === 'date-asc') {
-      results = [...results].sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+      results = [...results].sort((a,b) => _ts(a) - _ts(b));
     } else if (sort === 'az') {
       results = [...results].sort((a,b) => (a.title||'').localeCompare(b.title||'',undefined,{sensitivity:'base'}));
     } else if (sort === 'za') {
@@ -1094,11 +1062,15 @@ async function renderTrending(root) {
         <div class="sec-title">🔥 Trending ${sortNote}</div>
       </div>
       ${trendBar()}
+      ${filterBarHTML()}
       <div class="card-grid">${results.length
         ? results.map(s => cardHTML(s)).join('')
         : `<div class="empty"><div class="empty-icon">🔥</div><div class="empty-title">Nothing here</div>
-           <div class="empty-sub">Try resetting the sort.</div>
-           <button class="btn btn-surf btn-sm" style="margin-top:12px" onclick="STATE.trendingSort=null;renderTrending(document.getElementById('appRoot'))"><i class="fas fa-times"></i> Reset</button>
+           <div class="empty-sub">Try resetting the sort${(STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) ? ' or clearing filters' : ''}.</div>
+           <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+             <button class="btn btn-surf btn-sm" onclick="STATE.trendingSort=null;renderTrending(document.getElementById('appRoot'))"><i class="fas fa-times"></i> Reset sort</button>
+             ${(STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) ? `<button class="btn btn-surf btn-sm" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>` : ''}
+           </div>
            </div>`
       }</div>
     </div>`;

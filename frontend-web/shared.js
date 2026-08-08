@@ -104,6 +104,57 @@ function toggleSave(sid){
 }
 function isSaved(sid){ return getUserSaved().has(sid); }
 
+// ── MULTI-SELECT FILTERS (subject + language) ────────────────
+// One shared filter model + one shared bar, reused across every page that
+// shows a grid of summaries (feeds, search, trending) so "filter by
+// Physics AND Chemistry" or "Arabic AND English" behaves the same way
+// everywhere instead of each page inventing its own narrower version.
+function toggleFilterChip(kind, val){
+  if (!STATE.activeFilters) STATE.activeFilters = { subjects: [], langs: [] };
+  const list = STATE.activeFilters[kind] || (STATE.activeFilters[kind] = []);
+  const i = list.indexOf(val);
+  if (i >= 0) list.splice(i, 1); else list.push(val);
+  render();
+}
+function clearActiveFilters(){
+  STATE.activeFilters = { subjects: [], langs: [] };
+  render();
+}
+function applyActiveFilters(items){
+  const f = STATE.activeFilters || {};
+  const subjects = f.subjects || [];
+  const langs = f.langs || [];
+  if (!subjects.length && !langs.length) return items;
+  return items.filter(s => {
+    if (subjects.length && !subjects.includes(s.subject)) return false;
+    if (langs.length && !langs.includes(s.lang)) return false;
+    return true;
+  });
+}
+function filterBarHTML(){
+  const f = STATE.activeFilters || { subjects: [], langs: [] };
+  const activeCount = (f.subjects||[]).length + (f.langs||[]).length;
+  const langLabels = { ar: '🇸🇦 Arabic', en: '🇺🇸 English', fr: '🇫🇷 French' };
+  const subjChip = (subj) => `<span class="chip ${f.subjects.includes(subj) ? 'sel' : ''}" onclick="toggleFilterChip('subjects','${subj}')">${subj}</span>`;
+  const langChip = (l) => `<span class="chip ${f.langs.includes(l) ? 'sel' : ''}" onclick="toggleFilterChip('langs','${l}')">${langLabels[l]}</span>`;
+  return `<details class="filter-bar" ${activeCount ? 'open' : ''}>
+    <summary class="filter-bar__summary">
+      <i class="fas fa-sliders"></i> Filters${activeCount ? ` <span class="filter-bar__count">${activeCount}</span>` : ''}
+    </summary>
+    <div class="filter-bar__body">
+      <div class="filter-bar__group">
+        <div class="filter-bar__label">Subject</div>
+        <div class="chip-grid">${SUBJECTS.map(subjChip).join('')}</div>
+      </div>
+      <div class="filter-bar__group">
+        <div class="filter-bar__label">Language</div>
+        <div class="chip-grid">${['ar','en','fr'].map(langChip).join('')}</div>
+      </div>
+      ${activeCount ? `<button class="btn btn-surf btn-sm" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>` : ''}
+    </div>
+  </details>`;
+}
+
 // ── Guest banner dismiss ────────────────────────────────────
 function dismissGuestBanner(){
   document.getElementById('guestBanner')?.classList.add('hidden');

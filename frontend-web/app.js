@@ -12,6 +12,7 @@ var STATE = window.STATE = {
   searchSort: 'recommended',
   searchLang: 'all',
   advancedTarget: null,
+  activeFilters: { subjects: [], langs: [] },
 };
 
 // ── IN-MEMORY ACTIVITY LOG (frontend-only / demo mode) ────
@@ -94,13 +95,22 @@ function toggleSearchMode() {
   const lbl = document.getElementById('searchModeLabel');
   if (!btn || !lbl) return;
   const isCurr = btn.classList.contains('m-curr');
-  btn.classList.toggle('m-curr', !isCurr);
-  btn.classList.toggle('m-sci', isCurr);
-  const icon = btn.querySelector('i');
-  if (icon) icon.className = isCurr ? 'fas fa-flask' : 'fas fa-book-open';
-  lbl.textContent = isCurr ? 'Science' : 'Curriculum';
-  STATE.activeTab = isCurr ? 'science' : 'curriculum';
-  STATE.searchMode = isCurr ? 'science' : 'curriculum';
+  setSearchMode(isCurr ? 'science' : 'curriculum');
+}
+
+function setSearchMode(mode) {
+  const btn = document.getElementById('searchModeBtn');
+  const lbl = document.getElementById('searchModeLabel');
+  const isSci = mode === 'science';
+  STATE.activeTab = isSci ? 'science' : 'curriculum';
+  STATE.searchMode = isSci ? 'science' : 'curriculum';
+  if (btn && lbl) {
+    btn.classList.toggle('m-curr', !isSci);
+    btn.classList.toggle('m-sci', isSci);
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = isSci ? 'fas fa-flask' : 'fas fa-book-open';
+    lbl.textContent = isSci ? 'Science' : 'Curriculum';
+  }
   if (STATE.route === 'home' || STATE.route === 'search') render();
 }
 
@@ -122,6 +132,58 @@ function _isUniversity(grade) {
 }
 function _gradeCount(country) {
   return (COUNTRIES[country]?.grades || []).length;
+}
+
+// ── CROSS-COUNTRY GRADE COMPARISON ───────────────────────
+// Every country's grades[] ends with the literal string 'University' as its
+// last (highest) entry, so a grade's *position* in its own country's list,
+// normalized to 0..1, is a reasonable stand-in for "how advanced" it is —
+// even when comparing across two different countries' grade systems.
+function _gradeFraction(country, grade) {
+  if (!grade) return null;
+  const total = _gradeCount(country);
+  if (total < 2) return null;
+  const idx = _isUniversity(grade) ? (total - 1) : getGradeIndex(country, grade);
+  if (idx < 0) return null;
+  return idx / (total - 1);
+}
+
+// Signed step distance of summary `s`'s grade relative to `user`'s grade,
+// expressed in units of the user's OWN grade ladder (so "1 step" always
+// means "1 grade" from the user's point of view — even when `s` is from a
+// different country with a differently-sized grade list).
+// +N = N grades higher, -N = N grades lower, 0 = same tier, null = unknown.
+function gradeStepsVsUser(user, s) {
+  if (!user) return null;
+  const uIsUni = user.userType === 'colleague' || user.user_type === 'colleague';
+  const uFrac = uIsUni ? 1 : _gradeFraction(user.country, user.grade);
+  if (uFrac == null) return null;
+  const sFrac = _isUniversity(s.grade) ? 1 : _gradeFraction(s.country, s.grade);
+  if (sFrac == null) return null;
+  const total = _gradeCount(user.country);
+  const scale = total > 2 ? (total - 1) : 11;
+  return Math.round((sFrac - uFrac) * scale);
+}
+
+// "Neutral" zig-zag rank for grade proximity: same grade = 0, one grade
+// higher = 1, one grade lower = 2, two higher = 3, two lower = 4, ...
+// Unknown distances sink near the bottom without being excluded outright.
+function _zigzagRank(steps) {
+  if (steps === null || steps === undefined) return 9999;
+  if (steps === 0) return 0;
+  return steps > 0 ? steps * 2 - 1 : -steps * 2;
+}
+
+// Real timestamp (ms) from either shape: backend rows use unix-seconds
+// under `created_at`; a couple of legacy/mock spots used an ISO string
+// under `createdAt`. Sorting code should always go through this rather
+// than `new Date(x.createdAt)`, which silently yields NaN on real data.
+function _ts(s) {
+  if (s == null) return 0;
+  if (typeof s.created_at === 'number') return s.created_at * 1000;
+  if (typeof s.created_at === 'string' && s.created_at) return new Date(s.created_at).getTime() || 0;
+  if (s.createdAt) return new Date(s.createdAt).getTime() || 0;
+  return 0;
 }
 
 // Returns all grades above the user's grade (higher index = older/harder).
@@ -237,11 +299,13 @@ function sortItems(items, sortKey, user) {
     const interests  = user?.interests || [];
     arr.sort((a, b) => {
       // 1. Promoted always first
-      if (a.isPromoted && !b.isPromoted) return -1;
-      if (!a.isPromoted && b.isPromoted) return 1;
+      const pa = a.is_promoted ?? a.isPromoted, pb = b.is_promoted ?? b.isPromoted;
+      if (pa && !pb) return -1;
+      if (!pa && pb) return 1;
       // 2. Followed creators get a strong boost
-      const fa = following.includes(a.authorId) ? 25 : 0;
-      const fb = following.includes(b.authorId) ? 25 : 0;
+      const aAuthor = a.author_id || a.authorId, bAuthor = b.author_id || b.authorId;
+      const fa = following.includes(aAuthor) ? 25 : 0;
+      const fb = following.includes(bAuthor) ? 25 : 0;
       // 3. Interest match bonus
       const ia = interests.includes(a.subject) ? 12 : 0;
       const ib = interests.includes(b.subject) ? 12 : 0;
@@ -250,16 +314,16 @@ function sortItems(items, sortKey, user) {
       const la = al < 0 ? -8 : [10, 4, 0][al] ?? 0;
       const lb = bl < 0 ? -8 : [10, 4, 0][bl] ?? 0;
       // 5. Engagement × recency
-      const sa = (_engS(a) + fa + ia + la) * _recencyFactor(a.createdAt);
-      const sb = (_engS(b) + fb + ib + lb) * _recencyFactor(b.createdAt);
+      const sa = (_engS(a) + fa + ia + la) * _recencyFactor(_ts(a));
+      const sb = (_engS(b) + fb + ib + lb) * _recencyFactor(_ts(b));
       return sb - sa;
     });
   } else if (sortKey === 'date') {
-    arr.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    arr.sort((a, b) => _ts(b) - _ts(a));
   } else if (sortKey === 'date-asc') {
-    arr.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    arr.sort((a, b) => _ts(a) - _ts(b));
   } else if (sortKey === 'oldest') {
-    arr.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    arr.sort((a, b) => _ts(a) - _ts(b));
   } else if (sortKey === 'likes') {
     arr.sort((a, b) => b.likes - a.likes);
   } else if (sortKey === 'views') {
@@ -302,25 +366,38 @@ function sortItems(items, sortKey, user) {
       };
       return _currScore(b) - _currScore(a);
     });
-  } else if (sortKey === 'advanced') {
-    // Science-only: grades ABOVE user's, college/university first, then descending by grade level
+  } else if (sortKey === 'advanced' || (sortKey || '').startsWith('advanced:')) {
+    // "Only show me higher grades, up through college" — filtered to
+    // strictly-higher-than-the-user (or an explicit target grade), using
+    // the cross-country-safe step distance so foreign-country content is
+    // placed correctly instead of silently passing the filter unranked.
     const u2 = STATE.currentUser;
-    const target = STATE.advancedTarget || null; // 'University' or a specific grade name
-    const userGradeIdx = u2 ? getGradeIndex(u2.country, u2.grade) : -1;
-    const advGrades = u2 ? getAdvancedGrades(u2.country, u2.grade, target) : [];
-    // Order: University first, then grades in descending order (hardest first)
-    const gradeRank = (s) => {
-      if (s.grade === 'University') return 10000; // always top
-      const idx = u2 ? getGradeIndex(u2.country, s.grade) : getGradeIndex(s.country, s.grade);
-      return idx >= 0 ? idx : -1;
-    };
-    arr.sort((a, b) => {
-      if (a.isPromoted && !b.isPromoted) return -1;
-      if (!a.isPromoted && b.isPromoted) return 1;
-      const ra = gradeRank(a), rb = gradeRank(b);
-      if (rb !== ra) return rb - ra; // higher grade = first
-      return _engS(b) - _engS(a);   // tiebreak by engagement
+    const target = sortKey.indexOf(':') >= 0 ? sortKey.slice(sortKey.indexOf(':') + 1) : (STATE.advancedTarget || null);
+    const interests = u2?.interests || [];
+    const stepsOf = (s) => gradeStepsVsUser(u2, s);
+    let filtered = arr.filter(s => {
+      const steps = stepsOf(s);
+      if (steps === null || steps <= 0) return false;
+      if (target && target.toLowerCase() !== 'all') {
+        if (target.toLowerCase() === 'university') return _isUniversity(s.grade);
+        if (s.country === u2?.country) return s.grade === target;
+        const targetSteps = u2 ? gradeStepsVsUser(u2, { country: u2.country, grade: target }) : null;
+        return targetSteps !== null && steps <= targetSteps;
+      }
+      return true;
     });
+    filtered.sort((a, b) => {
+      const pa = (a.is_promoted ?? a.isPromoted) ? 1 : 0;
+      const pb = (b.is_promoted ?? b.isPromoted) ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+      const ia = interests.includes(a.subject) ? 1 : 0;
+      const ib = interests.includes(b.subject) ? 1 : 0;
+      if (ia !== ib) return ib - ia;
+      const sa = stepsOf(a) ?? 9999, sb = stepsOf(b) ?? 9999;
+      if (sa !== sb) return sa - sb; // nearest grade above the user first
+      return _engS(b) - _engS(a);
+    });
+    return filtered;
   }
   return arr;
 }
@@ -627,16 +704,35 @@ function isFollowing(id) { return (STATE.currentUser?.following || []).includes(
 function hasMembershipOf(creatorId) { return (STATE.currentUser?.memberships || []).includes(creatorId); }
 
 // In-place save toggle — updates the clicked button without full re-render
-function toggleSaveCard(sid, btn) {
+async function toggleSaveCard(sid, btn) {
   if (!STATE.loggedIn) { openSignIn(); return; }
-  toggleSave(sid);
-  const saved = isSaved(sid);
-  logActivity(saved ? 'save_summary' : 'unsave_summary', 'summary', sid);
-  persistState();
+  // Optimistic UI: flip immediately based on the clicked button's current
+  // state, then reconcile with the server's authoritative response.
+  const wasSaved = btn ? btn.classList.contains('btn-amber') : false;
   document.querySelectorAll(`[data-save="${sid}"]`).forEach(b => {
-    b.className = `btn ${saved ? 'btn-amber' : 'btn-surf'} btn-sm card__save-btn`;
-    b.innerHTML = `<i class="fas fa-bookmark"></i>${saved ? ' Unsave' : ' Save'}`;
+    b.className = `btn ${!wasSaved ? 'btn-amber' : 'btn-surf'} btn-sm card__save-btn`;
+    b.innerHTML = `<i class="fas fa-bookmark"></i>${!wasSaved ? ' Unsave' : ' Save'}`;
+    b.disabled = true;
   });
+  try {
+    const result = await api('POST', `/summaries/${sid}/save`);
+    const saved = !!result.saved;
+    document.querySelectorAll(`[data-save="${sid}"]`).forEach(b => {
+      b.className = `btn ${saved ? 'btn-amber' : 'btn-surf'} btn-sm card__save-btn`;
+      b.innerHTML = `<i class="fas fa-bookmark"></i>${saved ? ' Unsave' : ' Save'}`;
+      b.disabled = false;
+    });
+    toast(saved ? 'Saved! 🔖' : 'Removed from saved', 'success', 'fa-bookmark');
+    logActivity(saved ? 'save_summary' : 'unsave_summary', 'summary', sid);
+    if (STATE.route === 'saved') render();
+  } catch (e) {
+    document.querySelectorAll(`[data-save="${sid}"]`).forEach(b => {
+      b.className = `btn ${wasSaved ? 'btn-amber' : 'btn-surf'} btn-sm card__save-btn`;
+      b.innerHTML = `<i class="fas fa-bookmark"></i>${wasSaved ? ' Unsave' : ' Save'}`;
+      b.disabled = false;
+    });
+    toast(e.message || 'Could not update saved status', 'error', 'fa-exclamation');
+  }
 }
 
 async function toggleFollow(targetId) {
@@ -725,24 +821,25 @@ function toast(msg, type = 'success', icon = 'fa-circle-check') {
 // ── CARD HTML ─────────────────────────────────────────────
 function cardHTML(s, tag = '') {
   const icon = SUBJECT_ICONS[s.subject] || '📄';
-  const au = MOCK_USERS.find(u => u.id === s.authorId);
+  const isPromoted = s.is_promoted ?? s.isPromoted;
+  const isSponsored = s.is_sponsored ?? s.isSponsored;
+  const membershipRequired = s.membership_required ?? s.membershipRequired;
+  const authorId = s.author_id || s.authorId || '';
+  const au = s.authorData || null;
   const canFollow = STATE.loggedIn && au && STATE.currentUser && au.id !== STATE.currentUser.id;
   const following = canFollow ? isFollowing(au.id) : false;
-  const saved = STATE.loggedIn ? isSaved(s.id) : false;
-  const isNewFromFollowed = canFollow && following && (() => {
-    const d = new Date(s.createdAt);
-    return (Date.now() - d.getTime()) < 7 * 24 * 3600 * 1000;
-  })();
-  const memberBadge = s.membershipRequired
+  const saved = STATE.loggedIn ? !!s.userSaved : false;
+  const isNewFromFollowed = canFollow && following && (Date.now() - _ts(s)) < 7 * 24 * 3600 * 1000;
+  const memberBadge = membershipRequired
     ? `<span class="badge badge-crown"><i class="fas fa-crown"></i> Member</span>` : '';
   const followBtn = canFollow
     ? `<button class="btn ${following ? 'btn-surf' : 'btn-amber'} btn-sm" data-follow="${au.id}"
-         onclick="event.stopPropagation();toggleFollow('${au.id}')">
+         onclick="event.preventDefault();event.stopPropagation();toggleFollow('${au.id}')">
          <i class="fas ${following ? 'fa-check' : 'fa-plus'}"></i> ${following ? 'Following' : 'Follow'}
        </button>` : '';
   const saveBtn = STATE.loggedIn
     ? `<button class="btn ${saved ? 'btn-amber' : 'btn-surf'} btn-sm card__save-btn" data-save="${s.id}"
-         onclick="event.stopPropagation();toggleSaveCard('${s.id}',this)" title="${saved ? 'Remove from saved' : 'Save'}">
+         onclick="event.preventDefault();event.stopPropagation();toggleSaveCard('${s.id}',this)" title="${saved ? 'Remove from saved' : 'Save'}">
          <i class="fas fa-bookmark"></i>${saved ? ' Unsave' : ' Save'}
        </button>` : '';
   // Banner: use summary's bannerDataUrl (uploaded), bannerColor (seed gradient), or subject-based gradient
@@ -764,18 +861,18 @@ function cardHTML(s, tag = '') {
     : s.bannerColor
     ? `background:${s.bannerColor}`
     : `background:${_BANNER_COLORS[s.subject] || 'linear-gradient(135deg,#1a2030,#2a3550)'}`;
-  return `<a href="/summary/${s.id}" class="card ${s.isSponsored ? 'sponsored' : ''} ${s.isPromoted ? 'promoted-card' : ''} ${isNewFromFollowed ? 'new-card' : ''}" onclick="navigate('viewer',{id:'${s.id}'});return false;">
+  return `<a href="/summary/${s.id}" class="card ${isSponsored ? 'sponsored' : ''} ${isPromoted ? 'promoted-card' : ''} ${isNewFromFollowed ? 'new-card' : ''}" onclick="navigate('viewer',{id:'${s.id}'});return false;">
     <div class="card__thumb" style="${bannerStyle}">
       <div class="card__thumb-emoji">${icon}</div>
       <div class="card__overlay-badges">
         ${tag === 'Your Curriculum'
             ? `<span class="badge badge-gold" style="background:var(--gold);color:#000"><i class="fas fa-graduation-cap"></i> ${tag}</span>`
             : tag ? `<span class="badge badge-amber"><i class="fas fa-wand-magic-sparkles"></i> ${tag}</span>` : ''}
-        ${s.isPromoted ? `<span class="badge badge-ad"><i class="fas fa-bolt"></i> Promoted</span>` : ''}
+        ${isPromoted ? `<span class="badge badge-ad"><i class="fas fa-bolt"></i> Promoted</span>` : ''}
         ${memberBadge}
         ${isNewFromFollowed ? `<span class="badge badge-new"><i class="fas fa-bell"></i> New</span>` : ''}
       </div>
-      ${s.isSponsored ? `<div class="card__bottom-badge"><span class="badge badge-surf" style="font-size:9px">Sponsored</span></div>` : ''}
+      ${isSponsored ? `<div class="card__bottom-badge"><span class="badge badge-surf" style="font-size:9px">Sponsored</span></div>` : ''}
       <div class="card__pages-badge">
         <i class="fas fa-file-lines" style="font-size:9px"></i> ${s.pages}p
       </div>
@@ -785,7 +882,7 @@ function cardHTML(s, tag = '') {
       <div class="card__meta">
         <span style="color:var(--gold);font-weight:700">${s.subject}</span>
         <span class="card__dot">·</span>
-        <span class="card-author-link" onclick="event.stopPropagation();navigate('creator',{id:'${s.author_id || s.authorId || ''}'})">${s.author}</span>
+        <span class="card-author-link" onclick="event.preventDefault();event.stopPropagation();navigate('creator',{id:'${authorId}'})">${s.author}</span>
         <span class="card__dot">·</span>
         <span style="font-size:10.5px;color:var(--text3)">${s.grade}</span>
       </div>
@@ -795,8 +892,8 @@ function cardHTML(s, tag = '') {
         <span class="card__stat"><span class="lang-pill">${(s.lang || 'ar').toUpperCase()}</span></span>
         ${saveBtn}
       </div>
-      ${followBtn ? `<div class="card__follow-row">${followBtn}${au?.hasMembership
-        ? `<button class="btn btn-crown btn-sm" onclick="event.stopPropagation();navigate('creator',{id:'${au.id}'})"><i class="fas fa-crown"></i> عضوية</button>` : ''}
+      ${followBtn ? `<div class="card__follow-row">${followBtn}${au?.has_membership
+        ? `<button class="btn btn-crown btn-sm" onclick="event.preventDefault();event.stopPropagation();navigate('creator',{id:'${au.id}'})"><i class="fas fa-crown"></i> عضوية</button>` : ''}
       </div>` : ''}
     </div>
   </a>`;

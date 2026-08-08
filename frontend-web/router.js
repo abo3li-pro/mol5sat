@@ -182,7 +182,14 @@
     }
 
     updateNavForUser();
-    await loadNotifications();
+    try {
+      await loadNotifications();
+    } catch (e) {
+      // Never let a notifications hiccup block the page from rendering.
+      // If the session genuinely expired, api() already redirected via its
+      // own navigate() call — render() below will simply reflect that.
+      console.warn('[boot] loadNotifications failed, continuing anyway:', e?.message || e);
+    }
 
     // Set <html lang> to Arabic for users whose country uses Arabic,
     // so RTL-aware fonts/styles apply from the very first render.

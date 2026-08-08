@@ -45,7 +45,7 @@ const upload = multer({
   }
 });
 
-function enrichSummary(s) {
+function enrichSummary(s, userId) {
   if (!s) return null;
   try {
     try { s.tags = JSON.parse(s.tags || '[]'); } catch { s.tags = []; }
@@ -64,6 +64,16 @@ function enrichSummary(s) {
     s.author = author?.name || s.author_name || '';
     s.author_username = author?.username || '';
     s.authorData = author || null;
+    // Per-user flags — previously only computed on the single-item route,
+    // so cards rendered from list endpoints (feed/search/saves/likes) had
+    // no way to know the current user had already saved/liked them.
+    if (userId) {
+      s.userLiked = !!db.prepare('SELECT 1 FROM likes WHERE user_id=? AND summary_id=?').get(userId, s.id);
+      s.userSaved = !!db.prepare('SELECT 1 FROM saves WHERE user_id=? AND summary_id=?').get(userId, s.id);
+    } else {
+      s.userLiked = false;
+      s.userSaved = false;
+    }
     return s;
   } catch (err) {
     console.error('[enrichSummary] failed on summary id=' + (s?.id || '?') + ':', err.message);
@@ -85,15 +95,28 @@ router.get('/feed', optionalAuth, (req, res) => {
       const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC, s.views DESC' };
       const order = orderMap[req.query.sort] || orderMap.recommended;
       const rows = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' ORDER BY ${order} LIMIT 60`).all();
-      return res.json(rows.map(enrichSummary).filter(s => s && !s._enrichError));
+      return res.json(rows.map(s => enrichSummary(s, null)).filter(s => s && !s._enrichError));
     }
 
     const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC' };
     const order = orderMap[req.query.sort] || orderMap.recommended;
-    const primary = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' AND s.country=? AND s.grade=? ORDER BY ${order}`).all(u.country, u.grade);
-    const promoted = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience!='colleagues' AND s.is_promoted=1 AND s.country!=? ORDER BY ${order} LIMIT 10`).all(u.country);
-    const seen = new Set(primary.map(s => s.id));
-    res.json([...primary, ...promoted.filter(s => !seen.has(s.id))].map(enrichSummary).filter(s => s && !s._enrichError));
+
+    // mode=curriculum (Curriculum tab) → keep the exact country+grade match.
+    // Anything else (Science tab, or no mode given) needs the full breadth
+    // of approved student content — grade/country is a *ranking* signal
+    // there, not a hard filter — otherwise the Science feed silently
+    // degrades into "curriculum feed with extra steps" for every logged-in
+    // user, and features like grade-proximity ordering or the advanced
+    // "higher grades" filter have almost nothing to actually sort/filter.
+    if (req.query.mode === 'curriculum') {
+      const primary = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' AND s.country=? AND s.grade=? ORDER BY ${order}`).all(u.country, u.grade);
+      const promoted = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience!='colleagues' AND s.is_promoted=1 AND s.country!=? ORDER BY ${order} LIMIT 10`).all(u.country);
+      const seen = new Set(primary.map(s => s.id));
+      return res.json([...primary, ...promoted.filter(s => !seen.has(s.id))].map(s => enrichSummary(s, u.id)).filter(s => s && !s._enrichError));
+    }
+
+    const rows = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' ORDER BY ${order} LIMIT 300`).all();
+    res.json(rows.map(s => enrichSummary(s, u.id)).filter(s => s && !s._enrichError));
   } catch (err) {
     console.error('[GET /summaries/feed] error:', err.message, err.stack);
     res.status(500).json({ error: 'Feed failed. Please try again.' });
@@ -104,25 +127,25 @@ router.get('/feed', optionalAuth, (req, res) => {
 router.get('/pending', requireSupervisor, (req, res) => {
   const rows = db.prepare(`SELECT s.*, u.name as author_name FROM summaries s LEFT JOIN users u ON u.id=s.author_id WHERE s.approved=0 ORDER BY s.created_at ASC`).all();
   rows.forEach(s => { s.author = s.author_name; });
-  res.json(rows.map(enrichSummary));
+  res.json(rows.map(s => enrichSummary(s, req.user?.id)));
 });
 
 // GET /api/summaries/user/saves
 router.get('/user/saves', requireAuth, (req, res) => {
   const rows = db.prepare(`SELECT s.* FROM summaries s JOIN saves sv ON sv.summary_id=s.id WHERE sv.user_id=? AND s.approved=1 ORDER BY sv.created_at DESC`).all(req.user.id);
-  res.json(rows.map(enrichSummary));
+  res.json(rows.map(s => enrichSummary(s, req.user.id)));
 });
 
 // GET /api/summaries/user/likes
 router.get('/user/likes', requireAuth, (req, res) => {
   const rows = db.prepare(`SELECT s.* FROM summaries s JOIN likes l ON l.summary_id=s.id WHERE l.user_id=? AND s.approved=1 ORDER BY l.created_at DESC`).all(req.user.id);
-  res.json(rows.map(enrichSummary));
+  res.json(rows.map(s => enrichSummary(s, req.user.id)));
 });
 
 // GET /api/summaries/
 router.get('/', optionalAuth, (req, res) => {
   try {
-    const { subject, country, grade, lang, audience, sort, q } = req.query;
+    const { subject, country, grade, lang, audience, sort, q, mode } = req.query;
     let where = ['s.approved=1']; let params = [];
     if (subject) { where.push('s.subject=?'); params.push(subject); }
     if (country) { where.push('s.country=?'); params.push(country); }
@@ -134,11 +157,19 @@ router.get('/', optionalAuth, (req, res) => {
       // Guests should not see colleagues/university content
       where.push("s.audience != 'colleagues'");
     }
+    // mode=curriculum: restrict search to the user's own country+grade,
+    // mirroring /feed?mode=curriculum, so a Curriculum-tab search actually
+    // stays within the user's curriculum instead of searching everything.
+    if (mode === 'curriculum' && req.user) {
+      where.push('s.country=?'); params.push(req.user.country);
+      if (req.user.grade) { where.push('s.grade=?'); params.push(req.user.grade); }
+      where.push("s.audience != 'colleagues'");
+    }
     if (q) { where.push('(s.title LIKE ? OR s.subject LIKE ? OR s.tags LIKE ? OR s.content LIKE ?)'); const lk=`%${q}%`; params.push(lk,lk,lk,lk); }
     const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC, s.views DESC' };
     const order = orderMap[sort] || orderMap.recommended;
     const rows = db.prepare(`SELECT s.* FROM summaries s WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 200`).all(...params);
-    const enriched = rows.map(enrichSummary).filter(s => s && !s._enrichError);
+    const enriched = rows.map(s => enrichSummary(s, req.user?.id)).filter(s => s && !s._enrichError);
     res.json(enriched);
   } catch (err) {
     console.error('[GET /summaries] search error:', err.message, err.stack);

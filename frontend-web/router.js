@@ -139,6 +139,7 @@
 
   // ── INIT: set STATE.route from the current URL, then boot
   document.addEventListener('DOMContentLoaded', async () => {
+    console.log('%c[Mol5sat] frontend build: 1.1.0-science-feed-2026-08-08', 'color:#FFB800;font-weight:bold');
     const { route, data } = routeFromURL();
     STATE.route = route;
     STATE.routeData = data;

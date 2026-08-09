@@ -337,7 +337,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status:   'ok',
     time:     new Date().toISOString(),
-    version:  '1.1.0-science-feed-2026-08-08',
+    version:  '1.2.0-admin-filters-search-2026-08-09',
     warnings: secretWarnings.length ? secretWarnings : undefined,
   });
 });

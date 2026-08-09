@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { log } = require('../utils/activity');
+const { enrichSummary } = require('./summaries');
 
 function safeUser(u) {
   if (!u) return null;
@@ -64,7 +65,7 @@ router.get('/:id', optionalAuth, (req, res) => {
   if (!user) return res.status(404).json({ error: 'User not found' });
   const safe = safeUser(user);
   safe.summaries = db.prepare('SELECT * FROM summaries WHERE author_id=? AND approved=1 ORDER BY created_at DESC').all(req.params.id);
-  safe.summaries.forEach(s => { try { s.tags = JSON.parse(s.tags||'[]'); } catch { s.tags=[]; } });
+  safe.summaries = safe.summaries.map(s => enrichSummary(s, req.user?.id)).filter(s => s && !s._enrichError);
   if (req.user) {
     safe.isFollowing = !!db.prepare('SELECT 1 FROM follows WHERE follower_id=? AND following_id=?').get(req.user.id, req.params.id);
     safe.hasMembership = !!db.prepare('SELECT 1 FROM memberships WHERE subscriber_id=? AND creator_id=? AND active=1').get(req.user.id, req.params.id);

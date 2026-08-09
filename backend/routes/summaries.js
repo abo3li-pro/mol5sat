@@ -421,3 +421,4 @@ router.post('/:id/save', requireAuth, (req, res) => {
 });
 
 module.exports = router;
+module.exports.enrichSummary = enrichSummary;

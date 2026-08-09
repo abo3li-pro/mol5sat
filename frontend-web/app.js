@@ -92,13 +92,19 @@ function signOut() {
 function toggleSearchMode() {
 
   const btn = document.getElementById('searchModeBtn');
-  const lbl = document.getElementById('searchModeLabel');
-  if (!btn || !lbl) return;
+  if (!btn) return;
   const isCurr = btn.classList.contains('m-curr');
-  setSearchMode(isCurr ? 'science' : 'curriculum');
+  const newMode = isCurr ? 'science' : 'curriculum';
+  if (STATE.route === 'search') {
+    // Already viewing search results: do a real navigation so the URL
+    // (and thus reload / back-button) reflects the new mode too.
+    navigate('search', { q: STATE.routeData?.q || '', mode: newMode });
+  } else {
+    setSearchMode(newMode);
+  }
 }
 
-function setSearchMode(mode) {
+function setSearchMode(mode, skipRender) {
   const btn = document.getElementById('searchModeBtn');
   const lbl = document.getElementById('searchModeLabel');
   const isSci = mode === 'science';
@@ -111,7 +117,7 @@ function setSearchMode(mode) {
     if (icon) icon.className = isSci ? 'fas fa-flask' : 'fas fa-book-open';
     lbl.textContent = isSci ? 'Science' : 'Curriculum';
   }
-  if (STATE.route === 'home' || STATE.route === 'search') render();
+  if (!skipRender && (STATE.route === 'home' || STATE.route === 'search')) render();
 }
 
 // ── GRADE INDEX ───────────────────────────────────────────

@@ -53,8 +53,7 @@ function doSearch(){
   const q = (document.getElementById('searchInput')?.value || document.getElementById('mobSearchInput')?.value || '').trim();
   document.getElementById('searchSug').classList.add('hidden');
   addSearchHistory(q, STATE.searchMode);
-  STATE.routeData = { q };
-  navigate('search', { q });
+  navigate('search', { q, mode: STATE.searchMode || 'curriculum' });
 }
 
 // ── SEARCH HISTORY (YouTube-style: recent queries, per browser) ──────────

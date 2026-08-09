@@ -46,9 +46,10 @@ async function render() {
     // Unauthenticated users trying to access private routes → landing
     navigate('landing'); return;
   }
-  if (STATE.currentUser?.role === 'admin' && route === 'home') {
-    navigate('admin'); return;
-  }
+  // NOTE: admins are sent to /admin by default on login/boot (see
+  // router.js), but are otherwise free to browse Home/Curriculum/Science
+  // like any other logged-in user if they navigate there explicitly —
+  // there is deliberately no forced redirect here.
 
   // Show loading skeleton
   root.innerHTML = `<div style="text-align:center;padding:80px 20px"><div class="spinner" style="margin:0 auto"></div></div>`;
@@ -275,19 +276,27 @@ async function renderHome(root) {
           }</div></div>`;
       } else {
         const cards = scoredAll.map(s => tagCard(s)).join('');
-        root.innerHTML = `<div class="page">${tabToggle}
-          ${sortBarHTML(sort, 'setFeedSort', 'science')}
-          ${filterBarHTML()}
-          <div class="card-grid">${cards ||
-            `<div class="empty"><div class="empty-icon">🔬</div>
+        const noGradeForAdvanced = isAdv && u && !u.grade;
+        const emptyBlock = noGradeForAdvanced
+          ? `<div class="empty"><div class="empty-icon">🎓</div>
+             <div class="empty-title">No grade set on this account</div>
+             <div class="empty-sub">The Advanced filter compares content to your own grade, so it needs one to work.${u.role === 'admin' ? ' This is expected for admin accounts.' : ' Add your grade in Settings to use it.'}</div>
+             <div style="margin-top:14px;display:flex;gap:8px;justify-content:center">
+               <button class="btn btn-surf btn-sm" onclick="setFeedSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Back to Recommended</button>
+               ${u.role !== 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="navTo('settings')"><i class="fas fa-gear"></i> Go to Settings</button>` : ''}
+             </div></div>`
+          : `<div class="empty"><div class="empty-icon">🔬</div>
              <div class="empty-title">No summaries found</div>
              <div class="empty-sub">Try resetting the sort/filters or switching tabs.</div>
              <div style="margin-top:14px;display:flex;gap:8px;justify-content:center">
                ${sort !== 'recommended' ? `<button class="btn btn-surf btn-sm" onclick="setFeedSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>` : ''}
                ${(STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) ? `<button class="btn btn-surf btn-sm" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>` : ''}
                <button class="btn btn-ghost btn-sm" onclick="setTab('curriculum')"><i class="fas fa-book-open"></i> Curriculum Feed</button>
-             </div></div>`
-          }</div></div>`;
+             </div></div>`;
+        root.innerHTML = `<div class="page">${tabToggle}
+          ${sortBarHTML(sort, 'setFeedSort', 'science')}
+          ${filterBarHTML()}
+          <div class="card-grid">${cards || emptyBlock}</div></div>`;
       }
     }
   } catch (e) {
@@ -309,7 +318,16 @@ function setTab(t) { STATE.activeTab = t; STATE.searchMode = t; STATE.feedSort =
 async function renderSearchPage(root) {
   if (!root) root = document.getElementById('appRoot');
   const q    = STATE.routeData?.q || '';
-  const mode = STATE.searchMode || 'curriculum';
+  const mode = STATE.routeData?.mode || STATE.searchMode || 'curriculum';
+  // Keep the mode-toggle button and STATE.searchMode in sync with whichever
+  // mode this specific search is actually in -- this is what makes a
+  // reloaded /search?q=...&mode=science URL come back showing "Science"
+  // instead of silently reverting to the default Curriculum mode.
+  if (typeof setSearchMode === 'function') setSearchMode(mode, true);
+  const searchInputEl = document.getElementById('searchInput');
+  const mobSearchInputEl = document.getElementById('mobSearchInput');
+  if (searchInputEl) searchInputEl.value = q;
+  if (mobSearchInputEl) mobSearchInputEl.value = q;
   const u    = STATE.currentUser;
   const sort = STATE.searchSort || 'recommended';
   const isGuest = !STATE.loggedIn || !u;
@@ -350,10 +368,10 @@ async function renderSearchPage(root) {
       const canSwitchMode = !isGuest;
       const otherMode = mode === 'curriculum' ? 'science' : 'curriculum';
       const suggestions = [];
-      if (q) suggestions.push(`<button class="btn btn-surf btn-sm" onclick="STATE.routeData.q='';render()"><i class="fas fa-times"></i> Clear search</button>`);
+      if (q) suggestions.push(`<button class="btn btn-surf btn-sm" onclick="navigate('search',{q:'',mode:'${mode}'})"><i class="fas fa-times"></i> Clear search</button>`);
       if (sort !== 'recommended') suggestions.push(`<button class="btn btn-surf btn-sm" onclick="setSearchSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>`);
       if (STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) suggestions.push(`<button class="btn btn-surf btn-sm" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>`);
-      if (canSwitchMode) suggestions.push(`<button class="btn btn-ghost btn-sm" onclick="STATE.searchMode='${otherMode}';STATE.activeTab='${otherMode}';document.getElementById('searchModeBtn')?.classList.toggle('m-curr');render()"><i class="fas fa-repeat"></i> Try ${otherMode} search</button>`);
+      if (canSwitchMode) suggestions.push(`<button class="btn btn-ghost btn-sm" onclick="navigate('search',{q:STATE.routeData.q||'',mode:'${otherMode}'})"><i class="fas fa-repeat"></i> Try ${otherMode} search</button>`);
       return `<div class="empty">
         <div class="empty-icon">🔍</div>
         <div class="empty-title">No results found</div>
@@ -374,7 +392,7 @@ async function renderSearchPage(root) {
           </div>
           <div style="font-size:12px;color:var(--text2);margin-top:4px">${results.length} result${results.length !== 1 ? 's' : ''}</div>
         </div>
-        ${!isGuest ? `<button class="btn btn-surf btn-sm" onclick="toggleSearchMode()"><i class="fas fa-repeat"></i> Switch to ${mode === 'curriculum' ? 'Science' : 'Curriculum'}</button>` : ''}
+        ${!isGuest ? `<button class="btn btn-surf btn-sm" onclick="navigate('search',{q:STATE.routeData.q||'',mode:'${mode === 'curriculum' ? 'science' : 'curriculum'}'})"><i class="fas fa-repeat"></i> Switch to ${mode === 'curriculum' ? 'Science' : 'Curriculum'}</button>` : ''}
       </div>
       ${sortBarHTML(sort, 'setSearchSort', mode === 'science' ? 'science' : 'feed')}
       ${filterBarHTML()}
@@ -897,7 +915,8 @@ async function renderCreator(root, id) {
       ? `<img src="${photo}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--gold)">`
       : `<div class="creator-av">${initials}</div>`;
     const canFollow = STATE.loggedIn && STATE.currentUser && au.id !== STATE.currentUser.id;
-    const summaries = au.summaries || [];
+    const summaries = applyActiveFilters(au.summaries || []);
+    const totalSummaries = (au.summaries || []).length;
 
     root.innerHTML = `<div class="page page--narrow">
       <button class="btn btn-surf btn-sm" onclick="goBack()" style="margin-bottom:14px"><i class="fas fa-arrow-left"></i> Back</button>
@@ -919,9 +938,9 @@ async function renderCreator(root, id) {
         </div>
       </div>
       <div class="stats-bar">
-        <div class="stat-box"><div class="stat-val">${summaries.length}</div><div class="stat-lbl">Summaries</div></div>
+        <div class="stat-box"><div class="stat-val">${totalSummaries}</div><div class="stat-lbl">Summaries</div></div>
         <div class="stat-box"><div class="stat-val a">${fmt(au.followers || 0)}</div><div class="stat-lbl">Followers</div></div>
-        <div class="stat-box"><div class="stat-val">${fmt(summaries.reduce((a,s)=>a+(s.likes||0),0))}</div><div class="stat-lbl">Total Likes</div></div>
+        <div class="stat-box"><div class="stat-val">${fmt((au.summaries || []).reduce((a,s)=>a+(s.likes||0),0))}</div><div class="stat-lbl">Total Likes</div></div>
       </div>
       ${au.has_membership ? `<div class="membership-card">
         <h3><i class="fas fa-crown"></i> ${au.name}'s Membership</h3>
@@ -929,8 +948,9 @@ async function renderCreator(root, id) {
         <div class="membership-perks">${au.membership_perks || ''}</div>
         ${canFollow ? `<button class="btn btn-crown" onclick="joinMembership('${au.id}')"><i class="fas fa-crown"></i> ${au.hasMembership ? 'Cancel Membership' : 'Join for EGP '+au.membership_price+'/mo'}</button>` : ''}
       </div>` : ''}
-      <div class="sec-head"><div class="sec-title">📄 Summaries <span class="sec-tag sec-tag-amber">${summaries.length}</span></div></div>
-      <div class="card-grid">${summaries.length ? summaries.map(s => cardHTML(s)).join('') : `<div class="empty"><div class="empty-icon">📝</div><div class="empty-title">No summaries yet</div></div>`}</div>
+      <div class="sec-head"><div class="sec-title">📄 Summaries <span class="sec-tag sec-tag-amber">${summaries.length}${summaries.length !== totalSummaries ? ` of ${totalSummaries}` : ''}</span></div></div>
+      ${totalSummaries > 0 ? filterBarHTML() : ''}
+      <div class="card-grid">${summaries.length ? summaries.map(s => cardHTML(s)).join('') : `<div class="empty"><div class="empty-icon">📝</div><div class="empty-title">${totalSummaries ? 'No summaries match these filters' : 'No summaries yet'}</div>${totalSummaries && (STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) ? `<button class="btn btn-surf btn-sm" style="margin-top:12px" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>` : ''}</div>`}</div>
     </div>`;
   } catch (e) {
     root.innerHTML = `<div class="page"><div class="empty"><div class="empty-icon">👤</div><div class="empty-title">Creator not found</div></div></div>`;
@@ -943,7 +963,8 @@ async function renderFollowing(root) {
     const following = await api('GET', `/users/${STATE.currentUser.id}/following`);
     const summaries = await api('GET', `/summaries?sort=date`) || [];
     const followingIds = (following || []).map(f => f.id);
-    const fromFollowed = summaries.filter(s => followingIds.includes(s.author_id));
+    const totalFromFollowed = summaries.filter(s => followingIds.includes(s.author_id));
+    const fromFollowed = applyActiveFilters(totalFromFollowed);
 
     root.innerHTML = `<div class="page">
       <div class="sec-head"><div class="sec-title">👥 Following <span class="sec-tag sec-tag-gold">${(following||[]).length} creators</span></div></div>
@@ -957,8 +978,9 @@ async function renderFollowing(root) {
           </a>`;
         }).join('')}
       </div>` : `<div style="color:var(--text2);font-size:13px;margin-bottom:22px;padding:16px;background:var(--surf);border:1px solid var(--bord);border-radius:var(--radius)">Not following anyone yet.</div>`}
-      <div class="sec-head"><div class="sec-title">📄 Latest from Followed <span class="sec-tag sec-tag-amber">${fromFollowed.length}</span></div></div>
-      <div class="card-grid">${fromFollowed.length ? fromFollowed.map(s=>cardHTML(s)).join('') : `<div class="empty"><div class="empty-icon">📖</div><div class="empty-title">Nothing yet</div></div>`}</div>
+      <div class="sec-head"><div class="sec-title">📄 Latest from Followed <span class="sec-tag sec-tag-amber">${fromFollowed.length}${fromFollowed.length !== totalFromFollowed.length ? ` of ${totalFromFollowed.length}` : ''}</span></div></div>
+      ${totalFromFollowed.length ? filterBarHTML() : ''}
+      <div class="card-grid">${fromFollowed.length ? fromFollowed.map(s=>cardHTML(s)).join('') : `<div class="empty"><div class="empty-icon">📖</div><div class="empty-title">${totalFromFollowed.length ? 'No summaries match these filters' : 'Nothing yet'}</div>${totalFromFollowed.length && (STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) ? `<button class="btn btn-surf btn-sm" style="margin-top:12px" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>` : ''}</div>`}</div>
     </div>`;
   } catch (e) {
     root.innerHTML = `<div class="page"><div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error: ${esc(e.message)}</div></div></div>`;
@@ -968,10 +990,15 @@ async function renderFollowing(root) {
 // ── SAVED ──────────────────────────────────────────────────
 async function renderSaved(root) {
   try {
-    const saved = await api('GET', '/summaries/user/saves') || [];
+    const totalSaved = await api('GET', '/summaries/user/saves') || [];
+    const saved = applyActiveFilters(totalSaved);
     root.innerHTML = `<div class="page">
-      <div class="sec-head"><div class="sec-title">🔖 Saved Summaries <span class="sec-tag sec-tag-gold">${saved.length}</span></div></div>
-      <div class="card-grid">${saved.length ? saved.map(s=>cardHTML(s)).join('') : `<div class="empty"><div class="empty-icon">🔖</div><div class="empty-title">Nothing saved yet</div><div class="empty-sub">Save summaries while reading to find them here</div></div>`}</div>
+      <div class="sec-head"><div class="sec-title">🔖 Saved Summaries <span class="sec-tag sec-tag-gold">${saved.length}${saved.length !== totalSaved.length ? ` of ${totalSaved.length}` : ''}</span></div></div>
+      ${totalSaved.length ? filterBarHTML() : ''}
+      <div class="card-grid">${saved.length ? saved.map(s=>cardHTML(s)).join('') : totalSaved.length
+        ? `<div class="empty"><div class="empty-icon">🔖</div><div class="empty-title">No saved summaries match these filters</div><button class="btn btn-surf btn-sm" style="margin-top:12px" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button></div>`
+        : `<div class="empty"><div class="empty-icon">🔖</div><div class="empty-title">Nothing saved yet</div><div class="empty-sub">Save summaries while reading to find them here</div></div>`
+      }</div>
     </div>`;
   } catch (e) {
     root.innerHTML = `<div class="page"><div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error loading saves</div></div></div>`;

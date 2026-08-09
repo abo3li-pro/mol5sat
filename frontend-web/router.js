@@ -20,8 +20,8 @@
     const userMatch = p.match(/^\/user\/(.+)$/);
     if (userMatch) return { route: 'creator', data: { id: userMatch[1] } };
 
-    // /search?q=...
-    if (p === '/search') return { route: 'search', data: { q: sp.get('q') || '' } };
+    // /search?q=...&mode=...
+    if (p === '/search') return { route: 'search', data: { q: sp.get('q') || '', mode: sp.get('mode') || 'curriculum' } };
 
     // Static named pages
     const MAP = {
@@ -47,7 +47,13 @@
   function urlFromRoute(route, data) {
     if (route === 'viewer')  return '/summary/' + (data?.id || '');
     if (route === 'creator') return '/user/'    + (data?.id || '');
-    if (route === 'search')  return '/search'   + (data?.q  ? '?q=' + encodeURIComponent(data.q) : '');
+    if (route === 'search') {
+      const sp = new URLSearchParams();
+      if (data?.q) sp.set('q', data.q);
+      if (data?.mode) sp.set('mode', data.mode);
+      const qs = sp.toString();
+      return '/search' + (qs ? '?' + qs : '');
+    }
     if (route === 'landing') return '/';
     const NAMED = {
       home: '/home', trending: '/trending', subjects: '/subjects',
@@ -131,7 +137,8 @@
 
   // ── goHome helper ──────────────────────────────────────
   window.goHome = function () {
-    window.location.href = STATE.loggedIn ? '/home' : '/';
+    if (!STATE.loggedIn) { window.location.href = '/'; return; }
+    window.location.href = (STATE.currentUser?.role === 'admin') ? '/admin' : '/home';
   };
 
   // ── navTo helper (alias) ───────────────────────────────
@@ -139,7 +146,7 @@
 
   // ── INIT: set STATE.route from the current URL, then boot
   document.addEventListener('DOMContentLoaded', async () => {
-    console.log('%c[Mol5sat] frontend build: 1.1.0-science-feed-2026-08-08', 'color:#FFB800;font-weight:bold');
+    console.log('%c[Mol5sat] frontend build: 1.2.0-admin-filters-search-2026-08-09', 'color:#FFB800;font-weight:bold');
     const { route, data } = routeFromURL();
     STATE.route = route;
     STATE.routeData = data;
@@ -158,10 +165,12 @@
     }
     // Mock mode: STATE.currentUser/loggedIn already set by mock initAuth() above
 
-    // Redirect '/' to '/home' if logged in
+    // Redirect '/' to the right default page if logged in: admins land on
+    // the admin dashboard, everyone else on their feed.
     if (route === 'landing' && authed) {
-      window.history.replaceState({}, '', '/home');
-      STATE.route = 'home';
+      const dest = (STATE.currentUser?.role === 'admin') ? '/admin' : '/home';
+      window.history.replaceState({}, '', dest);
+      STATE.route = dest.slice(1);
     }
 
     // Redirect auth-required pages to '/' if not logged in

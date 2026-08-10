@@ -8,8 +8,8 @@ var STATE = window.STATE = {
   route: 'landing', routeData: {},
   searchMode: 'curriculum', activeTab: 'curriculum',
   historyStack: [],
-  feedSort: 'recommended',
-  searchSort: 'recommended',
+  feedSort: ['recommended'],
+  searchSort: ['recommended'],
   searchLang: 'all',
   advancedTarget: null,
   activeFilters: { subjects: [], langs: [] },
@@ -406,6 +406,84 @@ function sortItems(items, sortKey, user) {
     return filtered;
   }
   return arr;
+}
+
+// ── MULTI-SELECT SORT ────────────────────────────────────────────
+// STATE.feedSort / STATE.searchSort / STATE.trendingSort are arrays of
+// sort keys, applied as an ordered compound comparator (first selected =
+// primary key, later ones only break ties). 'recommended', 'curriculum',
+// and 'advanced'/'advanced:x' are algorithmic MODES rather than a single
+// field to compare on, so selecting one of those always replaces the
+// whole array; every other key toggles in/out and compounds with its
+// siblings, except within its own "opposite pair" (a field and its
+// reverse can't both be primary at once).
+function normalizeSortArr(s) {
+  if (Array.isArray(s)) return s.length ? s : ['recommended'];
+  return s ? [s] : ['recommended'];
+}
+function _sortOptMeta(key) {
+  const base = (key && key.startsWith('advanced:')) ? 'advanced' : key;
+  return (window._SORT_OPTS || []).find(o => o.k === base) || null;
+}
+function _isModeKey(key) {
+  const m = _sortOptMeta(key);
+  return !m || m.group === 'relevance' || m.group === 'advanced';
+}
+// Keys that are direct opposites of each other and can't both be active at
+// once (distinct from the visual `.group` in _SORT_OPTS, which is only for
+// clustering chips in the UI -- e.g. Top Liked and Most Viewed share a
+// visual group but are perfectly fine compounding together).
+var _SORT_OPPOSITES = window._SORT_OPPOSITES = {
+  'date': ['date-asc'], 'date-asc': ['date'],
+  'az': ['za'], 'za': ['az'],
+  'pages-desc': ['pages-asc'], 'pages-asc': ['pages-desc'],
+  'lang-ar': ['lang-en', 'lang-fr'], 'lang-en': ['lang-ar', 'lang-fr'], 'lang-fr': ['lang-ar', 'lang-en'],
+};
+function toggleSortInto(current, key) {
+  if (_isModeKey(key)) return [key];
+  let arr = normalizeSortArr(current).filter(k => !_isModeKey(k));
+  if (arr.includes(key)) {
+    arr = arr.filter(k => k !== key);
+  } else {
+    const opposites = _SORT_OPPOSITES[key] || [];
+    arr = arr.filter(k => !opposites.includes(k));
+    arr.push(key);
+  }
+  return arr.length ? arr : ['recommended'];
+}
+function _comparatorForKey(key) {
+  if (key === 'date')       return (a,b) => _ts(b) - _ts(a);
+  if (key === 'date-asc')   return (a,b) => _ts(a) - _ts(b);
+  if (key === 'likes')      return (a,b) => (b.likes||0) - (a.likes||0);
+  if (key === 'views')      return (a,b) => (b.views||0) - (a.views||0);
+  if (key === 'az')         return (a,b) => (a.title||'').localeCompare(b.title||'', undefined, {sensitivity:'base'});
+  if (key === 'za')         return (a,b) => (b.title||'').localeCompare(a.title||'', undefined, {sensitivity:'base'});
+  if (key === 'lang-ar')    return (a,b) => (a.lang==='ar'?-1:1) - (b.lang==='ar'?-1:1);
+  if (key === 'lang-en')    return (a,b) => (a.lang==='en'?-1:1) - (b.lang==='en'?-1:1);
+  if (key === 'lang-fr')    return (a,b) => (a.lang==='fr'?-1:1) - (b.lang==='fr'?-1:1);
+  if (key === 'pages-desc') return (a,b) => (b.pages||0) - (a.pages||0);
+  if (key === 'pages-asc')  return (a,b) => (a.pages||0) - (b.pages||0);
+  return null;
+}
+// Applies an array of sort keys. A single mode key delegates to the
+// existing sortItems() algorithm (unchanged behavior); anything else runs
+// as a compound multi-key sort, promoted-first, keys in priority order,
+// with overall engagement as the final tiebreak.
+function applySortKeys(items, sortArr, user) {
+  const arr = normalizeSortArr(sortArr);
+  if (arr.length === 1 && _isModeKey(arr[0])) return sortItems(items, arr[0], user);
+  const out = [...items];
+  out.sort((a, b) => {
+    const pa = (a.is_promoted ?? a.isPromoted) ? 1 : 0;
+    const pb = (b.is_promoted ?? b.isPromoted) ? 1 : 0;
+    if (pa !== pb) return pb - pa;
+    for (const k of arr) {
+      const cmp = _comparatorForKey(k);
+      if (cmp) { const r = cmp(a, b); if (r !== 0) return r; }
+    }
+    return _engS(b) - _engS(a);
+  });
+  return out;
 }
 
 // ── SMART CURRICULUM FEED ────────────────────────────────────────

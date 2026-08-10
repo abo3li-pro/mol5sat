@@ -146,26 +146,15 @@ async function renderHome(root) {
   const u = STATE.currentUser;
   const isGuest = !STATE.loggedIn || !u;
   const tab = isGuest ? 'science' : (STATE.activeTab || 'curriculum');
-  const sort = STATE.feedSort || 'recommended';
+  const sort = normalizeSortArr(STATE.feedSort);
 
   const tabToggle = isGuest ? '' : `<div class="feed-toggle">
     <div class="ftab ${tab === 'curriculum' ? 'ac' : ''}" onclick="setTab('curriculum')"><i class="fas fa-book-open"></i> Curriculum</div>
     <div class="ftab ${tab === 'science' ? 'as' : ''}" onclick="setTab('science')"><i class="fas fa-flask"></i> Science</div>
   </div>`;
 
-  // ── unified client-side sort (all sort keys) ──────────────
-  const applySort = (arr, forceSort) => {
-    const s = forceSort || sort;
-    if (s === 'lang-ar') return [...arr].sort((a,b)=>(a.lang==='ar'?-1:1)-(b.lang==='ar'?-1:1));
-    if (s === 'lang-en') return [...arr].sort((a,b)=>(a.lang==='en'?-1:1)-(b.lang==='en'?-1:1));
-    if (s === 'lang-fr') return [...arr].sort((a,b)=>(a.lang==='fr'?-1:1)-(b.lang==='fr'?-1:1));
-    if (s === 'az') return [...arr].sort((a,b)=>(a.title||'').localeCompare(b.title||'',undefined,{sensitivity:'base'}));
-    if (s === 'za') return [...arr].sort((a,b)=>(b.title||'').localeCompare(a.title||'',undefined,{sensitivity:'base'}));
-    if (s === 'date-asc' || s === 'oldest') return [...arr].sort((a,b)=>_ts(a)-_ts(b));
-    if (s === 'curriculum') return sortItems(arr, 'curriculum', u);
-    if (s === 'advanced' || (s||'').startsWith('advanced:')) return sortItems(arr, s, u);
-    return arr;
-  };
+  // ── unified client-side sort (all sort keys, multi-select aware) ──
+  const applySort = (arr, forceSort) => applySortKeys(arr, forceSort || sort, u);
 
   // ── SCIENCE FEED ORDERING ──────────────────────────────────
   // "Neutral": interest-matched subjects float up first; within each of
@@ -194,9 +183,10 @@ async function renderHome(root) {
     if (!isGuest && tab === 'curriculum') {
       // ── CURRICULUM FEED ─────────────────────────────────────
       // Strict: same country + same grade. School type is a tie-breaker only.
-      const clientSortKeys = ['lang-ar','lang-en','lang-fr','az','za','date-asc','oldest','curriculum'];
-      const apiSort = clientSortKeys.includes(sort) ? 'recommended' : sort;
-      let raw = await api('GET', `/summaries/feed?sort=${apiSort}&mode=curriculum`) || [];
+      // The client always re-applies the real sort afterward (needed for
+      // multi-key compound sorts anyway), and this query has no LIMIT, so
+      // the base fetch order here doesn't need to match the final one.
+      let raw = await api('GET', `/summaries/feed?sort=recommended&mode=curriculum`) || [];
 
       // Hard client-side guard: enforce exact country + grade (belt-and-suspenders)
       let filtered = raw.filter(s =>
@@ -208,13 +198,14 @@ async function renderHome(root) {
       filtered = applyActiveFilters(filtered);
       filtered = applySort(filtered);
 
+      const isDefaultSort = sort.length === 1 && sort[0] === 'recommended';
       const emptyHTML = `<div class="empty">
         <div class="empty-icon">📚</div>
         <div class="empty-title">No summaries for your curriculum yet</div>
         <div class="empty-sub">You're in <b>${u.grade || '?'}</b> · ${u.country || ''}.
           <br>Be the first to upload, or explore the Science feed!</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px">
-          ${sort !== 'recommended' ? `<button class="btn btn-surf btn-sm" onclick="setFeedSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>` : ''}
+          ${!isDefaultSort ? `<button class="btn btn-surf btn-sm" onclick="setFeedSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>` : ''}
           <button class="btn btn-ghost btn-sm" onclick="setTab('science')"><i class="fas fa-flask"></i> Browse Science Feed</button>
         </div>
       </div>`;
@@ -239,16 +230,17 @@ async function renderHome(root) {
       // content, not restricted by country/grade — grade is a *ranking*
       // signal here (see scienceOrder / the 'advanced' sortItems branch),
       // never a hard filter, except when Advanced mode is explicitly on.
-      const isAdv = sort === 'advanced' || (sort||'').startsWith('advanced:');
+      const isAdv = sort.length === 1 && (sort[0] === 'advanced' || sort[0].startsWith('advanced:'));
+      const isDefaultSort = sort.length === 1 && sort[0] === 'recommended';
 
       let allSummaries = await api('GET', `/summaries/feed?sort=recommended&mode=science`) || [];
       allSummaries = applyActiveFilters(allSummaries);
 
       let scoredAll;
       if (isAdv && u) {
-        scoredAll = sortItems(allSummaries, sort, u);
-      } else if (sort === 'recommended' || sort === 'curriculum') {
-        scoredAll = u ? scienceOrder(allSummaries) : applySort(allSummaries);
+        scoredAll = sortItems(allSummaries, sort[0], u);
+      } else if (isDefaultSort || (sort.length === 1 && sort[0] === 'curriculum')) {
+        scoredAll = u ? (isDefaultSort ? scienceOrder(allSummaries) : applySort(allSummaries)) : applySort(allSummaries);
       } else {
         scoredAll = applySort(allSummaries);
       }
@@ -289,7 +281,7 @@ async function renderHome(root) {
              <div class="empty-title">No summaries found</div>
              <div class="empty-sub">Try resetting the sort/filters or switching tabs.</div>
              <div style="margin-top:14px;display:flex;gap:8px;justify-content:center">
-               ${sort !== 'recommended' ? `<button class="btn btn-surf btn-sm" onclick="setFeedSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>` : ''}
+               ${!isDefaultSort ? `<button class="btn btn-surf btn-sm" onclick="setFeedSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>` : ''}
                ${(STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) ? `<button class="btn btn-surf btn-sm" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>` : ''}
                <button class="btn btn-ghost btn-sm" onclick="setTab('curriculum')"><i class="fas fa-book-open"></i> Curriculum Feed</button>
              </div></div>`;
@@ -312,7 +304,18 @@ async function renderHome(root) {
   }
 }
 
-function setTab(t) { STATE.activeTab = t; STATE.searchMode = t; STATE.feedSort = 'recommended'; STATE.advancedTarget = null; render(); }
+function setTab(t) {
+  STATE.feedSort = ['recommended'];
+  STATE.advancedTarget = null;
+  // setSearchMode sets both STATE.activeTab and STATE.searchMode, and
+  // syncs the nav bar's toggle button to match -- previously only the
+  // internal state was updated here, so the visible button (and thus
+  // what mode a fresh search would run in) could silently disagree with
+  // the tab you were actually looking at.
+  if (typeof setSearchMode === 'function') setSearchMode(t, true);
+  else { STATE.activeTab = t; STATE.searchMode = t; }
+  render();
+}
 
 // ── SEARCH ─────────────────────────────────────────────────
 async function renderSearchPage(root) {
@@ -329,34 +332,21 @@ async function renderSearchPage(root) {
   if (searchInputEl) searchInputEl.value = q;
   if (mobSearchInputEl) mobSearchInputEl.value = q;
   const u    = STATE.currentUser;
-  const sort = STATE.searchSort || 'recommended';
+  const sort = normalizeSortArr(STATE.searchSort);
   const isGuest = !STATE.loggedIn || !u;
-
-  // Map UI sort keys to api sort params
-  const apiSortParam = ['lang-ar','lang-en','lang-fr','az','za','curriculum'].includes(sort)
-    ? 'recommended' : sort;
+  const isDefaultSort = sort.length === 1 && sort[0] === 'recommended';
 
   try {
-    let params = `sort=${apiSortParam}`;
+    // The client always re-applies the real sort afterward (needed for
+    // multi-key compound sorts anyway), so just fetch a sensible base order.
+    let params = `sort=recommended`;
     if (q) params += `&q=${encodeURIComponent(q)}`;
-    // Pass mode so the api stub can apply curriculum strictness
+    // Pass mode so the backend can apply curriculum strictness
     params += `&mode=${mode}`;
     let results = await api('GET', `/summaries?${params}`) || [];
 
-    // Apply client-side sorts not supported by the stub
-    const clientSort = (arr) => {
-      if (sort === 'lang-ar') return [...arr].sort((a,b)=>(a.lang==='ar'?-1:1)-(b.lang==='ar'?-1:1)||0);
-      if (sort === 'lang-en') return [...arr].sort((a,b)=>(a.lang==='en'?-1:1)-(b.lang==='en'?-1:1)||0);
-      if (sort === 'lang-fr') return [...arr].sort((a,b)=>(a.lang==='fr'?-1:1)-(b.lang==='fr'?-1:1)||0);
-      if (sort === 'az')      return [...arr].sort((a,b)=>(a.title||'').localeCompare(b.title||'',undefined,{sensitivity:'base'}));
-      if (sort === 'za')      return [...arr].sort((a,b)=>(b.title||'').localeCompare(a.title||'',undefined,{sensitivity:'base'}));
-      if (sort === 'oldest' || sort === 'date-asc') return [...arr].sort((a,b)=>_ts(a)-_ts(b));
-      if (sort === 'curriculum') return sortItems(arr, 'curriculum', u);
-      if (sort === 'advanced' || (sort||'').startsWith('advanced:')) return sortItems(arr, sort, u);
-      return arr;
-    };
     results = applyActiveFilters(results);
-    results = clientSort(results);
+    results = applySortKeys(results, sort, u);
 
     // Mode label for header
     const modeLabel = mode === 'curriculum'
@@ -369,7 +359,7 @@ async function renderSearchPage(root) {
       const otherMode = mode === 'curriculum' ? 'science' : 'curriculum';
       const suggestions = [];
       if (q) suggestions.push(`<button class="btn btn-surf btn-sm" onclick="navigate('search',{q:'',mode:'${mode}'})"><i class="fas fa-times"></i> Clear search</button>`);
-      if (sort !== 'recommended') suggestions.push(`<button class="btn btn-surf btn-sm" onclick="setSearchSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>`);
+      if (!isDefaultSort) suggestions.push(`<button class="btn btn-surf btn-sm" onclick="setSearchSort('recommended')"><i class="fas fa-wand-magic-sparkles"></i> Reset sort</button>`);
       if (STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) suggestions.push(`<button class="btn btn-surf btn-sm" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>`);
       if (canSwitchMode) suggestions.push(`<button class="btn btn-ghost btn-sm" onclick="navigate('search',{q:STATE.routeData.q||'',mode:'${otherMode}'})"><i class="fas fa-repeat"></i> Try ${otherMode} search</button>`);
       return `<div class="empty">
@@ -1019,12 +1009,12 @@ async function renderTrending(root) {
     ...(STATE.loggedIn ? [{k:'advanced', i:'fa-chart-line', l:'Advanced'}] : []),
   ];
 
-  if (!STATE.trendingSort) STATE.trendingSort = null; // null = default (by views)
+  if (!Array.isArray(STATE.trendingSort)) STATE.trendingSort = []; // [] = default (by views)
   const sort = STATE.trendingSort;
   const u = STATE.currentUser;
-  const isAdv = sort === 'advanced' || (sort||'').startsWith('advanced:');
+  const isAdv = sort.length === 1 && (sort[0] === 'advanced' || sort[0].startsWith('advanced:'));
 
-  // Build sort bar — no trendingSort selected = default (most viewed) shown as subtext
+  // Build sort bar — empty trendingSort = default (most viewed) shown as subtext
   const trendBar = () => {
     const isAdvActive = isAdv;
     const advDropdown = () => {
@@ -1033,14 +1023,15 @@ async function renderTrending(root) {
       const userIdx = getGradeIndex(u.country, u.grade);
       const aheadGrades = grades.filter((g, i) => i > userIdx || g === 'University');
       if (!aheadGrades.length) return '';
-      const currentTarget = sort && sort.includes(':') ? sort.split(':').slice(1).join(':') : 'all';
+      const activeKey = sort[0];
+      const currentTarget = activeKey.includes(':') ? activeKey.split(':').slice(1).join(':') : 'all';
       const opts = [
         {val:'all',        lbl:'All grades ahead'},
         {val:'university', lbl:'🎓 University only'},
         ...aheadGrades.filter(g => g !== 'University').map(g => ({val:g, lbl:g})),
       ];
       return `<select class="select" style="height:30px;font-size:12px;padding:0 28px 0 10px;border-radius:8px;min-width:170px;margin-left:6px"
-        onchange="STATE.trendingSort='advanced:'+this.value;renderTrending(document.getElementById('appRoot'))">
+        onchange="STATE.trendingSort=['advanced:'+this.value];renderTrending(document.getElementById('appRoot'))">
         ${opts.map(o => `<option value="${o.val}" ${currentTarget===o.val?'selected':''}>${o.lbl}</option>`).join('')}
       </select>`;
     };
@@ -1048,13 +1039,13 @@ async function renderTrending(root) {
       <span class="sort-label">Re-sort:</span>
       <div class="sort-chips" style="flex-wrap:wrap;gap:5px;align-items:center">
         ${TREND_SORTS.map(o => {
-          const active = sort === o.k || (o.k === 'advanced' && isAdvActive);
+          const active = sort.includes(o.k) || (o.k === 'advanced' && isAdvActive);
           return `<span class="sort-chip ${active?'active':''}"
-            onclick="STATE.trendingSort='${o.k}';renderTrending(document.getElementById('appRoot'))"
+            onclick="STATE.trendingSort=toggleSortInto(STATE.trendingSort,'${o.k}');renderTrending(document.getElementById('appRoot'))"
             title="${o.l}"><i class="fas ${o.i}"></i> ${o.l}</span>`;
         }).join('')}
         ${advDropdown()}
-        ${sort ? `<span class="sort-chip" onclick="STATE.trendingSort=null;renderTrending(document.getElementById('appRoot'))"
+        ${sort.length ? `<span class="sort-chip" onclick="STATE.trendingSort=[];renderTrending(document.getElementById('appRoot'))"
           style="color:var(--text3)"><i class="fas fa-times"></i> Reset</span>` : ''}
       </div>
     </div>`;
@@ -1065,23 +1056,11 @@ async function renderTrending(root) {
     let results = await api('GET', '/summaries?sort=views') || [];
     results = applyActiveFilters(results);
 
-    if (isAdv && u) {
-      results = sortItems(results, sort, u);
-    } else if (sort === 'likes') {
-      results = [...results].sort((a,b) => (b.likes||0) - (a.likes||0));
-    } else if (sort === 'date') {
-      results = [...results].sort((a,b) => _ts(b) - _ts(a));
-    } else if (sort === 'date-asc') {
-      results = [...results].sort((a,b) => _ts(a) - _ts(b));
-    } else if (sort === 'az') {
-      results = [...results].sort((a,b) => (a.title||'').localeCompare(b.title||'',undefined,{sensitivity:'base'}));
-    } else if (sort === 'za') {
-      results = [...results].sort((a,b) => (b.title||'').localeCompare(a.title||'',undefined,{sensitivity:'base'}));
-    }
-    // null sort = keep as-is (by views, which is what we fetched)
+    if (sort.length) results = applySortKeys(results, sort, u);
+    // empty sort = keep as-is (by views, which is what we fetched)
 
-    const sortNote = sort
-      ? `<span style="font-size:11px;color:var(--text3);font-weight:500;margin-left:8px">(re-sorted by ${TREND_SORTS.find(o=>o.k===sort||sort.startsWith(o.k+':'))?.l||sort})</span>`
+    const sortNote = sort.length
+      ? `<span style="font-size:11px;color:var(--text3);font-weight:500;margin-left:8px">(re-sorted by ${sort.map(k => TREND_SORTS.find(o=>o.k===k||k.startsWith(o.k+':'))?.l||k).join(' → ')})</span>`
       : `<span style="font-size:11px;color:var(--text3);font-weight:500;margin-left:8px">· Most Viewed</span>`;
 
     root.innerHTML = `<div class="page">
@@ -1095,7 +1074,7 @@ async function renderTrending(root) {
         : `<div class="empty"><div class="empty-icon">🔥</div><div class="empty-title">Nothing here</div>
            <div class="empty-sub">Try resetting the sort${(STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) ? ' or clearing filters' : ''}.</div>
            <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
-             <button class="btn btn-surf btn-sm" onclick="STATE.trendingSort=null;renderTrending(document.getElementById('appRoot'))"><i class="fas fa-times"></i> Reset sort</button>
+             <button class="btn btn-surf btn-sm" onclick="STATE.trendingSort=[];renderTrending(document.getElementById('appRoot'))"><i class="fas fa-times"></i> Reset sort</button>
              ${(STATE.activeFilters?.subjects?.length || STATE.activeFilters?.langs?.length) ? `<button class="btn btn-surf btn-sm" onclick="clearActiveFilters()"><i class="fas fa-xmark"></i> Clear filters</button>` : ''}
            </div>
            </div>`

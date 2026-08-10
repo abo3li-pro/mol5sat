@@ -529,7 +529,11 @@ input,select,textarea{font-family:inherit;color:var(--text)}
 .guest-banner{
   position:fixed;
   top:var(--nh);
-  /* Default: full width */
+  /* Default: full width. This is intentionally the base case, not an
+     exception -- the sidebar is off-canvas far more often than it's
+     docked (every width under 1400px, i.e. phones, tablets, and most
+     laptops), so "no menu = full width" has to be what happens unless
+     something below specifically says otherwise. */
   left:0; right:0;
   z-index:910;
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
@@ -540,13 +544,18 @@ input,select,textarea{font-family:inherit;color:var(--text)}
   font-size:12px;color:var(--text2);
   transition:left .25s cubic-bezier(.4,0,.2,1);
 }
-/* When sidebar is open on desktop, banner starts after sidebar */
-@media(min-width:1025px){
+/* Sidebar is docked by default at this width (matches .main's own
+   breakpoint) -- banner starts after it, unless the user has manually
+   collapsed it, in which case it goes back to full width. */
+@media(min-width:1400px){
   .guest-banner{left:var(--sw);}
+  body.sb-collapsed .guest-banner{left:0;}
 }
-/* On mobile when sidebar is open, shrink banner to not cover sidebar */
-body.sb-open .guest-banner{
-  left:var(--sw);
+/* Below 1400px the sidebar is off-canvas by default (banner = full
+   width); if the user opens it as an overlay, shrink the banner so it
+   doesn't run behind the open sidebar. */
+@media(max-width:1399px){
+  body.sb-open .guest-banner{left:var(--sw);}
 }
 .guest-banner__icon{font-size:16px;flex-shrink:0}
 .guest-banner__text{flex:1;min-width:0;font-weight:600;line-height:1.4}

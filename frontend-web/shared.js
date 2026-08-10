@@ -1,8 +1,8 @@
 // ── Shared helpers (from index.html inline script)
 
 // ── Small helpers that live only in index.html ─────────────
-function setFeedSort(k){ STATE.feedSort=k; render(); }
-function setSearchSort(k){ STATE.searchSort=k; render(); }
+function setFeedSort(k){ STATE.feedSort = toggleSortInto(STATE.feedSort, k); render(); }
+function setSearchSort(k){ STATE.searchSort = toggleSortInto(STATE.searchSort, k); render(); }
 
 // Full sort options shown in one bar, grouped by category
 var _SORT_OPTS = window._SORT_OPTS = [
@@ -31,9 +31,13 @@ var _SORT_OPTS = window._SORT_OPTS = [
 
 function sortBarHTML(currentSort, onChangeFn='setFeedSort', context='feed'){
   const u = STATE.currentUser;
-  const showCurr    = u && u.role !== 'admin' && context !== 'science';
+  const sortArr = normalizeSortArr(currentSort);
+  // "My Curriculum" only makes sense where results AREN'T already
+  // restricted to your exact country+grade -- i.e. Science feed/search,
+  // not the Curriculum feed/search where every result already matches.
+  const showCurr    = u && u.role !== 'admin' && context === 'science';
   const showAdv     = context === 'science' && u && u.role !== 'admin';
-  const isAdvActive = currentSort && (currentSort === 'advanced' || currentSort.startsWith('advanced:'));
+  const isAdvActive = sortArr.length === 1 && (sortArr[0] === 'advanced' || sortArr[0].startsWith('advanced:'));
 
   // Build the grade dropdown for Advanced mode
   const advDropdownHTML = () => {
@@ -43,7 +47,8 @@ function sortBarHTML(currentSort, onChangeFn='setFeedSort', context='feed'){
     // Only grades above the user, plus University
     const aheadGrades = grades.filter((g, i) => i > userIdx || g === 'University');
     if (!aheadGrades.length) return '<span style="font-size:11px;color:var(--text2);margin-left:4px">No higher grades found for your country</span>';
-    const currentTarget = currentSort.includes(':') ? currentSort.split(':').slice(1).join(':') : 'all';
+    const activeKey = sortArr[0];
+    const currentTarget = activeKey.includes(':') ? activeKey.split(':').slice(1).join(':') : 'all';
     const opts = [
       {val:'all',        lbl:'All grades ahead'},
       {val:'university', lbl:'🎓 University only'},
@@ -56,7 +61,7 @@ function sortBarHTML(currentSort, onChangeFn='setFeedSort', context='feed'){
   };
 
   const chip = (o) => {
-    const active = currentSort === o.k || (o.k === 'advanced' && isAdvActive);
+    const active = sortArr.includes(o.k) || (o.k === 'advanced' && isAdvActive);
     return `<span class="sort-chip ${active?'active':''}" onclick="${onChangeFn}('${o.k}')" title="${o.l}">
       ${o.i ? `<i class="fas ${o.i}"></i>` : ''} ${o.l}
     </span>`;

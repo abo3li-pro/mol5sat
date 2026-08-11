@@ -337,7 +337,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status:   'ok',
     time:     new Date().toISOString(),
-    version:  '1.3.0-multisort-guestbanner-2026-08-10',
+    version:  '1.4.0-comments-guestux-pagination-2026-08-11',
     warnings: secretWarnings.length ? secretWarnings : undefined,
   });
 });

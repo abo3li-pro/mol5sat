@@ -12,6 +12,7 @@ const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db');
 const { requireAuth, optionalAuth, requireSupervisor } = require('../middleware/auth');
 const { log } = require('../utils/activity');
+const { checkText } = require('../utils/badWords');
 let _xss; try { _xss = require('xss'); } catch { _xss = null; }
 function sanitizeBody(s) { return _xss ? _xss(s, { whiteList: {}, stripIgnoreTag: true, stripIgnoreTagBody: ['script','style'] }) : s; }
 
@@ -69,6 +70,11 @@ router.post('/:summaryId', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Comment body is required' });
   }
   const trimmed = sanitizeBody(body.trim()).slice(0, MAX_BODY_LEN);
+
+  const { clean } = checkText(trimmed);
+  if (!clean) {
+    return res.status(400).json({ error: 'Your comment contains prohibited language. Please revise it.' });
+  }
 
   // Verify summary exists and is approved
   const summary = db.prepare('SELECT id FROM summaries WHERE id=? AND approved=1').get(summaryId);

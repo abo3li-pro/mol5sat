@@ -218,7 +218,13 @@
     btn.href = intentUrl;
     subtext.textContent = 'Open in the Mol5sat app for a better experience';
     btn.textContent = 'Open App';
-    banner.style.display = 'flex';
+    // Only show once per session — this page reloads fresh every time
+    // someone opens a new creator profile, so without this it would pop
+    // up on every single one instead of just the first.
+    if (!sessionStorage.getItem('mol5sat_mobile_banner_shown')) {
+      sessionStorage.setItem('mol5sat_mobile_banner_shown', '1');
+      setTimeout(() => { banner.style.display = 'flex'; }, 1500);
+    }
 
   } else {
     // Desktop — the app is for mobile, tell them it exists

@@ -203,9 +203,8 @@ function updateNavForUser(){
     }
     // Show guest banner
     document.getElementById('guestBanner')?.classList.remove('hidden');
-    // Hide Curriculum feed link only (si-div-feeds removed from HTML — no longer needed)
-    const feedHideIds = ['si-sec-feeds','si-curr'];
-    feedHideIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+    // Curriculum Feed stays visible for guests -- clicking it shows a
+    // locked explainer (see renderHome) rather than being hidden outright.
     // Keep si-sci visible for guests — science feed is their default
     // Hide the search-mode toggle (curriculum vs science) — guests only see science
     const smBtn = document.getElementById('searchModeBtn');

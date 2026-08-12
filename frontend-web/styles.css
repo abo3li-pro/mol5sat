@@ -455,6 +455,32 @@ input,select,textarea{font-family:inherit;color:var(--text)}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .toast.success i{color:var(--amber)}.toast.error i{color:var(--coral)}.toast.info i{color:var(--gold)}
 
+/* ═══ GUEST ACTION BANNER ════════════════════════════════ */
+/* Shown instead of jumping straight to the sign-in modal when a guest
+   tries to like/save/follow/comment -- short, explains the benefit,
+   offers both Sign In and Sign Up. */
+.guest-action-banner{
+  position:fixed;
+  bottom:calc(18px + env(safe-area-inset-bottom));
+  left:50%;transform:translateX(-50%);
+  z-index:2010;
+  width:min(380px, calc(100vw - 28px));
+  background:var(--surf);
+  border:1px solid rgba(255,184,0,.32);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--sh);
+  padding:16px 16px 14px;
+  animation:guestActBannerIn .28s cubic-bezier(.4,0,.2,1);
+}
+@keyframes guestActBannerIn{from{opacity:0;transform:translateX(-50%) translateY(16px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.guest-action-banner__close{position:absolute;top:9px;right:9px;width:24px;height:24px;border-radius:50%;background:var(--surf2);color:var(--text2);display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;border:none;transition:.15s}
+.guest-action-banner__close:hover{background:var(--surf3);color:var(--text)}
+.guest-action-banner__head{display:flex;align-items:center;gap:9px;font-family:var(--fd);font-size:14.5px;font-weight:800;margin-bottom:5px;padding-right:22px}
+.guest-action-banner__head i{color:var(--amber);font-size:16px;flex-shrink:0}
+.guest-action-banner__body{font-size:12.5px;color:var(--text2);line-height:1.55;margin-bottom:13px}
+.guest-action-banner__acts{display:flex;gap:8px}
+.guest-action-banner__acts .btn{flex:1}
+
 /* ═══ EMPTY / SPINNER ════════════════════════════════════ */
 .empty{text-align:center;padding:52px 20px;grid-column:1/-1}
 .empty-icon{font-size:44px;color:var(--text3);margin-bottom:14px}

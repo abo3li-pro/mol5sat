@@ -145,11 +145,15 @@ function renderNotFound(path) {
 async function renderHome(root) {
   const u = STATE.currentUser;
   const isGuest = !STATE.loggedIn || !u;
-  const tab = isGuest ? 'science' : (STATE.activeTab || 'curriculum');
+  // Respect an explicit tab choice (from anyone, including guests) over
+  // the default -- only fall back to a role-appropriate default (Science
+  // for guests, so they land on browsable content) when nothing has been
+  // chosen yet this session.
+  const tab = STATE.activeTab || (isGuest ? 'science' : 'curriculum');
   const sort = normalizeSortArr(STATE.feedSort);
 
-  const tabToggle = isGuest ? '' : `<div class="feed-toggle">
-    <div class="ftab ${tab === 'curriculum' ? 'ac' : ''}" onclick="setTab('curriculum')"><i class="fas fa-book-open"></i> Curriculum</div>
+  const tabToggle = `<div class="feed-toggle">
+    <div class="ftab ${tab === 'curriculum' ? 'ac' : ''}" onclick="setTab('curriculum')"><i class="fas fa-book-open"></i> Curriculum${isGuest ? ' <i class="fas fa-lock" style="font-size:10px;opacity:.7"></i>' : ''}</div>
     <div class="ftab ${tab === 'science' ? 'as' : ''}" onclick="setTab('science')"><i class="fas fa-flask"></i> Science</div>
   </div>`;
 
@@ -180,7 +184,24 @@ async function renderHome(root) {
   };
 
   try {
-    if (!isGuest && tab === 'curriculum') {
+    if (isGuest && tab === 'curriculum') {
+      // ── CURRICULUM FEED, LOCKED (guest) ──────────────────────
+      root.innerHTML = `<div class="page">${tabToggle}
+        <div class="member-gate" style="margin-top:8px">
+          <div class="member-gate-icon">🔒</div>
+          <div class="member-gate-title">Your Curriculum Feed is personal</div>
+          <div class="member-gate-sub">Sign in and we'll match summaries exactly to your grade, school type, and country — only what's actually relevant to you, nothing else.</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="openSignIn()"><i class="fas fa-right-to-bracket"></i> Sign In</button>
+            <button class="btn btn-ghost-gold" onclick="openSignUp()"><i class="fas fa-user-plus"></i> Sign Up</button>
+          </div>
+          <div style="margin-top:16px">
+            <span class="sec-more" onclick="setTab('science')"><i class="fas fa-flask"></i> Or browse the Science Feed →</span>
+          </div>
+        </div>
+      </div>`;
+
+    } else if (!isGuest && tab === 'curriculum') {
       // ── CURRICULUM FEED ─────────────────────────────────────
       // Strict: same country + same grade. School type is a tie-breaker only.
       // The client always re-applies the real sort afterward (needed for
@@ -447,11 +468,33 @@ async function renderViewer(root, id) {
     const author = s.authorData;
 
     // ── Content pagination ───────────────────────────────────────────────
-    // Split the real content into pages at natural break points.
-    // We split on <hr>, <h2>, or every ~3000 chars if no natural breaks.
+    // Split the real content into pages at natural break points: <hr>,
+    // then <h2> groups, then (if neither exists) evenly by length so the
+    // page count lines up with what the summary claims (s.pages) instead
+    // of collapsing everything onto a single unnavigable page.
     const rawContent = s.content || `<h2>Introduction</h2><p>This summary covers <b>${s.subject}</b>.</p>`;
 
-    function paginateContent(html) {
+    function paginateByLength(html, targetChars) {
+      // Split into block-level chunks, each keeping its own closing tag,
+      // so we only ever break BETWEEN elements, never mid-tag/mid-word.
+      const blocks = html.match(/[\s\S]*?<\/(?:p|h1|h2|h3|h4|h5|ul|ol|li|blockquote|table|div|pre)>/gi);
+      if (!blocks || blocks.length <= 1) return [html]; // nothing safe to split on
+      const pages = [];
+      let current = '', currentLen = 0;
+      for (const block of blocks) {
+        const textLen = block.replace(/<[^>]+>/g, '').length;
+        if (currentLen > 0 && currentLen + textLen > targetChars) {
+          pages.push(current);
+          current = block; currentLen = textLen;
+        } else {
+          current += block; currentLen += textLen;
+        }
+      }
+      if (current.trim()) pages.push(current);
+      return pages.length ? pages : [html];
+    }
+
+    function paginateContent(html, targetPageCount) {
       // Try splitting at <hr> first
       const hrParts = html.split(/<hr\s*\/?>/i).filter(p => p.trim());
       if (hrParts.length > 1) return hrParts;
@@ -465,11 +508,16 @@ async function renderViewer(root, id) {
         }
         return pages.filter(p => p.trim());
       }
-      // No natural breaks — show all content on one page
-      return [html];
+      // No natural breaks — split evenly by length, aiming for roughly
+      // `targetPageCount` pages (the page count the summary was uploaded
+      // with), with a floor so very short content doesn't get shredded
+      // into dozens of near-empty pages.
+      const totalTextLen = html.replace(/<[^>]+>/g, '').length;
+      const perPage = Math.max(400, Math.ceil(totalTextLen / Math.max(1, targetPageCount || 1)));
+      return paginateByLength(html, perPage);
     }
 
-    const contentPages = paginateContent(rawContent);
+    const contentPages = paginateContent(rawContent, s.pages);
 
     const adDuration = s.ad_duration_seconds || 10;
     const adHtml = company ? `<div class="ad-break" id="adBlock_${s.id}">
@@ -555,6 +603,29 @@ async function renderViewer(root, id) {
         <button class="btn btn-surf btn-sm" onclick="changeViewPage(-1)" ${pg <= 1 ? 'disabled style="opacity:.4"' : ''}><i class="fas fa-chevron-left"></i> Prev</button>
         <div class="page-ind">Page ${pg} of ${pages.length} <span style="color:var(--text3)">· ${s.pages} total</span></div>
         <button class="btn btn-surf btn-sm" onclick="changeViewPage(1)" ${pg >= pages.length ? 'disabled style="opacity:.4"' : ''}>Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+      <div class="viewer-body" style="margin-top:16px">
+        <div class="sec-head" style="margin-bottom:16px">
+          <div class="sec-title"><i class="fas fa-comments" style="color:var(--amber)"></i> Comments <span id="commentCount" style="color:var(--text2);font-weight:500;font-size:12px"></span></div>
+          <div class="comment-sort-chips">
+            <span class="comment-sort-chip active" onclick="loadComments('${s.id}','newest',this)">Newest</span>
+            <span class="comment-sort-chip" onclick="loadComments('${s.id}','top',this)">Top</span>
+          </div>
+        </div>
+        <div class="comment-compose">
+          <div class="comment-av">${STATE.loggedIn && u ? (u.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() : '?'}</div>
+          <div class="comment-input-wrap">
+            <textarea class="comment-input" id="commentBox" placeholder="Add a comment…" maxlength="2000" rows="1"
+              oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';document.getElementById('commentSubmitRow').style.display=this.value.trim()?'flex':'none'"></textarea>
+            <div class="comment-submit-row" id="commentSubmitRow" style="display:none">
+              <button class="btn btn-surf btn-sm" onclick="cancelComment()">Cancel</button>
+              <button class="btn btn-amber btn-sm" onclick="submitComment('${s.id}')"><i class="fas fa-paper-plane"></i> Post</button>
+            </div>
+          </div>
+        </div>
+        <div class="comment-list" id="commentList">
+          <div class="spinner" style="margin:24px auto"></div>
+        </div>
       </div>` : `
       <div class="viewer-body">
         <div class="member-gate">
@@ -565,6 +636,7 @@ async function renderViewer(root, id) {
         </div>
       </div>`}
     </div>`;
+    if (canRead) loadComments(id, _commentSort);
   } catch (e) {
     root.innerHTML = `<div class="viewer"><button class="btn btn-surf btn-sm" onclick="goBack()" style="margin-bottom:16px"><i class="fas fa-arrow-left"></i> Back</button><div class="empty"><div class="empty-icon">❓</div><div class="empty-title">Summary not found</div><div class="empty-sub">${esc(e.message)}</div></div></div>`;
   }
@@ -677,9 +749,11 @@ async function loadComments(summaryId, sort='newest', chipEl=null) {
 }
 
 async function submitComment(summaryId) {
+  if (!STATE.loggedIn) { showGuestActionBanner('comment'); return; }
   const box = document.getElementById('commentBox');
   const body = box?.value?.trim();
   if (!body) { toast('Write something first!', 'error', 'fa-exclamation'); return; }
+  if (!guardInput(body, 'Comment')) return;
   try {
     const payload = { body };
     if (_replyingTo) payload.parent_id = _replyingTo;
@@ -691,7 +765,7 @@ async function submitComment(summaryId) {
 }
 
 async function likeComment(commentId, summaryId, btn) {
-  if (!STATE.loggedIn) { openSignIn(); return; }
+  if (!STATE.loggedIn) { showGuestActionBanner('like'); return; }
   try {
     const data = await api('POST', `/comments/${summaryId}/${commentId}/like`);
     const likesEl = btn?.querySelector('.cmt-likes');
@@ -741,9 +815,11 @@ function startReply(parentId, authorName, summaryId) {
 }
 
 async function submitReply(parentId, summaryId) {
+  if (!STATE.loggedIn) { showGuestActionBanner('comment'); return; }
   const box = document.getElementById(`replyBox_input_${parentId}`);
   const body = box?.value?.trim();
   if (!body) { toast('Write something!', 'error'); return; }
+  if (!guardInput(body, 'Reply')) return;
   try {
     await api('POST', `/comments/${summaryId}`, { body, parent_id: parentId });
     document.getElementById(`replyBox_${parentId}`).style.display = 'none';
@@ -754,7 +830,7 @@ async function submitReply(parentId, summaryId) {
 }
 
 async function likeSummary(id) {
-  if (!STATE.loggedIn) { openSignIn(); return; }
+  if (!STATE.loggedIn) { showGuestActionBanner('like'); return; }
   try {
     const data = await api('POST', `/summaries/${id}/like`);
     const btn = document.getElementById('likeBtn');
@@ -767,7 +843,7 @@ async function likeSummary(id) {
 }
 
 async function saveSummary(id) {
-  if (!STATE.loggedIn) { openSignIn(); return; }
+  if (!STATE.loggedIn) { showGuestActionBanner('save'); return; }
   try {
     const data = await api('POST', `/summaries/${id}/save`);
     const btn = document.getElementById('saveBtn');

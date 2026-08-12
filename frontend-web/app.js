@@ -6,7 +6,7 @@
 var STATE = window.STATE = {
   currentUser: null, loggedIn: false,
   route: 'landing', routeData: {},
-  searchMode: 'curriculum', activeTab: 'curriculum',
+  searchMode: 'curriculum', activeTab: null,
   historyStack: [],
   feedSort: ['recommended'],
   searchSort: ['recommended'],
@@ -789,7 +789,7 @@ function hasMembershipOf(creatorId) { return (STATE.currentUser?.memberships || 
 
 // In-place save toggle — updates the clicked button without full re-render
 async function toggleSaveCard(sid, btn) {
-  if (!STATE.loggedIn) { openSignIn(); return; }
+  if (!STATE.loggedIn) { showGuestActionBanner('save'); return; }
   // Optimistic UI: flip immediately based on the clicked button's current
   // state, then reconcile with the server's authoritative response.
   const wasSaved = btn ? btn.classList.contains('btn-amber') : false;
@@ -820,7 +820,7 @@ async function toggleSaveCard(sid, btn) {
 }
 
 async function toggleFollow(targetId) {
-  const u = STATE.currentUser; if (!u) { openSignIn(); return; }
+  const u = STATE.currentUser; if (!u) { showGuestActionBanner('follow'); return; }
   // Optimistic UI: flip the buttons immediately, then confirm with the server.
   const wasFollowing = isFollowing(targetId);
   document.querySelectorAll(`[data-follow="${targetId}"]`).forEach(btn => {
@@ -900,6 +900,40 @@ function toast(msg, type = 'success', icon = 'fa-circle-check') {
   const el = document.createElement('div'); el.className = `toast ${type}`;
   el.innerHTML = `<i class="fas ${icon}"></i> ${msg}`;
   document.body.appendChild(el); setTimeout(() => el.remove(), 3200);
+}
+
+// ── GUEST ACTION BANNER ────────────────────────────────────
+// Shown instead of jumping straight to the sign-in modal whenever a guest
+// tries to like/save/follow/comment -- short, explains what they'd get,
+// and offers both Sign In and Sign Up right there.
+const _GUEST_ACTION_COPY = {
+  like:    { icon: 'fa-heart',     title: 'Sign in to like this',
+             body: 'Liking helps creators know their work is landing — takes just a few seconds.' },
+  save:    { icon: 'fa-bookmark',  title: 'Sign in to save this',
+             body: 'Save summaries to build your own reading list and find them again anytime.' },
+  follow:  { icon: 'fa-user-plus', title: 'Sign in to follow',
+             body: 'Get notified the moment they publish something new.' },
+  comment: { icon: 'fa-comments',  title: 'Sign in to join the conversation',
+             body: 'Share your thoughts and ask questions — creators often reply.' },
+};
+function showGuestActionBanner(action, subject) {
+  document.querySelectorAll('.guest-action-banner').forEach(b => b.remove());
+  const c = _GUEST_ACTION_COPY[action] || _GUEST_ACTION_COPY.like;
+  const title = (subject && action === 'follow')
+    ? `Sign in to follow ${esc(subject)}`
+    : (subject ? `${c.title} ${esc(subject)}` : (action === 'follow' ? 'Sign in to follow this creator' : c.title));
+  const el = document.createElement('div');
+  el.className = 'guest-action-banner';
+  el.innerHTML = `
+    <button class="guest-action-banner__close" aria-label="Dismiss" onclick="this.closest('.guest-action-banner').remove()"><i class="fas fa-xmark"></i></button>
+    <div class="guest-action-banner__head"><i class="fas ${c.icon}"></i> ${title}</div>
+    <div class="guest-action-banner__body">${c.body}</div>
+    <div class="guest-action-banner__acts">
+      <button class="btn btn-primary btn-sm" onclick="this.closest('.guest-action-banner').remove();openSignIn()"><i class="fas fa-right-to-bracket"></i> Sign In</button>
+      <button class="btn btn-ghost btn-sm" onclick="this.closest('.guest-action-banner').remove();openSignUp()"><i class="fas fa-user-plus"></i> Sign Up</button>
+    </div>`;
+  document.body.appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.remove(); }, 9000);
 }
 
 // ── CARD HTML ─────────────────────────────────────────────

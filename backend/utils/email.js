@@ -101,6 +101,38 @@ async function sendBanEmail({ to, name, reason, duration, banType }) {
 }
 
 /**
+ * Sends a decline notification email to a summary's author, with the
+ * supervisor/admin's stated reason. Mirrors sendBanEmail's structure and
+ * falls back to console.log if SMTP is not configured.
+ */
+async function sendDeclineEmail({ to, name, reason, title }) {
+  const subject = `Your summary "${title}" was not approved`;
+
+  const body = `
+    <h1>📋 Summary Not Approved</h1>
+    <p>Hi <b>${name}</b>,</p>
+    <p>Your summary <b>"${title}"</b> was reviewed and was not approved for publishing on Mol5sat.</p>
+    <div class="reason-box">📋 Reason:<br><br>${reason}</div>
+    <p>You're welcome to revise it based on the feedback above and resubmit — most declines just need a small fix.</p>`;
+
+  const html = wrapEmail(subject, body);
+
+  const transporter = getTransporter();
+  if (!transporter) {
+    console.log(`\n[EMAIL — DECLINE] To: ${to}\nSubject: ${subject}\nName: ${name}\nTitle: ${title}\nReason: ${reason}\n`);
+    return { sent: false, reason: 'No SMTP configured. Set SMTP_HOST in .env to enable email sending.' };
+  }
+
+  try {
+    await transporter.sendMail({ from: FROM, to, subject, html });
+    return { sent: true };
+  } catch (err) {
+    console.error('[EMAIL ERROR]', err.message);
+    return { sent: false, reason: err.message };
+  }
+}
+
+/**
  * Generic email sender (for future use: welcome, report outcome, etc.)
  */
 async function sendEmail({ to, subject, html }) {
@@ -118,4 +150,4 @@ async function sendEmail({ to, subject, html }) {
   }
 }
 
-module.exports = { sendBanEmail, sendEmail, wrapEmail };
+module.exports = { sendBanEmail, sendDeclineEmail, sendEmail, wrapEmail };

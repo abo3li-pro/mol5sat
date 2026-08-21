@@ -138,7 +138,8 @@
   // ── goHome helper ──────────────────────────────────────
   window.goHome = function () {
     if (!STATE.loggedIn) { window.location.href = '/'; return; }
-    window.location.href = (STATE.currentUser?.role === 'admin') ? '/admin' : '/home';
+    const role = STATE.currentUser?.role;
+    window.location.href = role === 'admin' ? '/admin' : role === 'supervisor' ? '/supervisor' : '/home';
   };
 
   // ── navTo helper (alias) ───────────────────────────────
@@ -166,9 +167,11 @@
     // Mock mode: STATE.currentUser/loggedIn already set by mock initAuth() above
 
     // Redirect '/' to the right default page if logged in: admins land on
-    // the admin dashboard, everyone else on their feed.
+    // the admin dashboard, supervisors on their supervision queue,
+    // everyone else on their feed.
     if (route === 'landing' && authed) {
-      const dest = (STATE.currentUser?.role === 'admin') ? '/admin' : '/home';
+      const role = STATE.currentUser?.role;
+      const dest = role === 'admin' ? '/admin' : role === 'supervisor' ? '/supervisor' : '/home';
       window.history.replaceState({}, '', dest);
       STATE.route = dest.slice(1);
     }

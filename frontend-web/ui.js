@@ -143,6 +143,7 @@ function toggleUserMenu(e){
     : `<div class="um-av">${initials}</div>`;
   const m = document.createElement('div'); m.className = 'user-menu'; m.id = 'userMenu';
   const isAdmin = u.role === 'admin';
+  const isModerator = isAdmin || u.role === 'supervisor';
   const hasUploads = (u.uploads || 0) > 0;
   m.innerHTML = `
     <div class="um-section um-section--first">
@@ -159,7 +160,8 @@ function toggleUserMenu(e){
       <div class="um-item" onclick="navTo('profile');closeUserMenu()"><i class="fas fa-circle-user" aria-hidden="true"></i> My Profile</div>
       <div class="um-item" onclick="navTo('notifications');closeUserMenu()"><i class="fas fa-bell" aria-hidden="true"></i> Notifications ${STATE.unreadCount > 0 ? `<span style="background:var(--coral);color:#fff;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:900;margin-left:4px">${STATE.unreadCount}</span>` : ''}</div>
       ${isAdmin ? `<div class="um-item" onclick="navTo('admin');closeUserMenu()"><i class="fas fa-shield-halved" aria-hidden="true"></i> Admin Panel</div>` : ''}
-      ${!isAdmin ? `<div class="um-item" onclick="openUploadModal();closeUserMenu()"><i class="fas fa-upload" aria-hidden="true"></i> Upload Summary</div>
+      ${u.role === 'supervisor' ? `<div class="um-item" onclick="navTo('supervisor');closeUserMenu()"><i class="fas fa-eye" aria-hidden="true"></i> Supervision Queue</div>` : ''}
+      ${!isModerator ? `<div class="um-item" onclick="openUploadModal();closeUserMenu()"><i class="fas fa-upload" aria-hidden="true"></i> Upload Summary</div>
       <div class="um-item" onclick="navTo('following');closeUserMenu()"><i class="fas fa-users" aria-hidden="true"></i> Following</div>
       ${hasUploads ? `<div class="um-item" onclick="navTo('earnings');closeUserMenu()"><i class="fas fa-coins" aria-hidden="true"></i> Earnings</div>
       <div class="um-item" onclick="navTo('wallet');closeUserMenu()"><i class="fas fa-wallet" aria-hidden="true"></i> Wallet</div>` : ''}` : ''}
@@ -252,14 +254,23 @@ function updateNavForUser(){
   const smBtn = document.getElementById('searchModeBtn');
   if (smBtn) smBtn.style.display = '';
   const isAdmin = u.role === 'admin';
+  const isModerator = isAdmin || u.role === 'supervisor';
   // Show/hide admin-only items
   document.getElementById('si-admin')?.style && (document.getElementById('si-admin').style.display = isAdmin ? '' : 'none');
-  document.getElementById('si-admin-sec')?.style && (document.getElementById('si-admin-sec').style.display = (isAdmin || u.role==='supervisor') ? '' : 'none');
+  const adminSecEl = document.getElementById('si-admin-sec');
+  if (adminSecEl) {
+    adminSecEl.style.display = isModerator ? '' : 'none';
+    // A supervisor only ever sees "Supervision Queue" under this header —
+    // never "Admin Panel" — so label it accordingly rather than reusing
+    // the admin-only wording for a section they can't actually enter.
+    adminSecEl.textContent = isAdmin ? 'Admin' : 'Moderation';
+  }
   if (document.getElementById('si-supervisor')) document.getElementById('si-supervisor').style.display = u.role==='supervisor' ? '' : 'none';
   document.getElementById('bn-admin')?.style && (document.getElementById('bn-admin').style.display = isAdmin ? '' : 'none');
-  // Show/hide upload for non-admins
-  document.getElementById('si-upload')?.style && (document.getElementById('si-upload').style.display = isAdmin ? 'none' : '');
-  document.getElementById('bn-upload')?.style && (document.getElementById('bn-upload').style.display = isAdmin ? 'none' : '');
+  // Show/hide upload for non-admins and non-supervisors (supervisors don't
+  // upload content — reviewing and banning is their entire scope)
+  document.getElementById('si-upload')?.style && (document.getElementById('si-upload').style.display = isModerator ? 'none' : '');
+  document.getElementById('bn-upload')?.style && (document.getElementById('bn-upload').style.display = isModerator ? 'none' : '');
 }
 function setSidebarActive(route){
   document.querySelectorAll('.si-item').forEach(el => el.classList.remove('active','active-a'));
@@ -286,7 +297,7 @@ function openSignIn(){
       <div id="si-err" style="color:var(--coral);font-size:12px;margin-top:8px;display:none" role="alert"></div>
       <button class="btn btn-primary btn-block btn-lg" style="margin-top:18px" onclick="submitSignIn()"><i class="fas fa-right-to-bracket" aria-hidden="true"></i> Sign In</button>
       <div style="text-align:center;margin-top:14px;font-size:12px;color:var(--text2)">No account? <span style="color:var(--amber);cursor:pointer;font-weight:700" onclick="document.getElementById('siOverlay').remove();openSignUp()">Sign Up Free →</span></div>
-      <div class="info-box" style="margin-top:14px"><b>Demo accounts (password for all: <code>pass123</code>):</b><br>admin@mol5sat.org / admin123 · ahmed@example.com / pass123 · mona@example.com / pass123</div>
+      <div class="info-box" style="margin-top:14px"><b>Demo accounts (password for all: <code>pass123</code>):</b><br>admin@mol5sat.org / admin123 · supervisor@mol5sat.org / super123 · ahmed@example.com / pass123 · mona@example.com / pass123</div>
     </div>
   </div>`;
   document.body.appendChild(ov);

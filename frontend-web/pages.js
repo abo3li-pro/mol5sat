@@ -31,7 +31,8 @@ async function render() {
   // Route guards
   if (STATE.loggedIn && route === 'landing') {
     // Logged-in users never see the landing page
-    const dest = STATE.currentUser?.role === 'admin' ? 'admin' : 'home';
+    const role = STATE.currentUser?.role;
+    const dest = role === 'admin' ? 'admin' : role === 'supervisor' ? 'supervisor' : 'home';
     navigate(dest); return;
   }
   // Guests must land on the welcome page first. 'home' is only reachable
@@ -342,7 +343,14 @@ function setTab(t) {
 async function renderSearchPage(root) {
   if (!root) root = document.getElementById('appRoot');
   const q    = STATE.routeData?.q || '';
-  const mode = STATE.routeData?.mode || STATE.searchMode || 'curriculum';
+  const u    = STATE.currentUser;
+  const isGuest = !STATE.loggedIn || !u;
+  // Guests default to Science search (Curriculum needs a signed-in grade/
+  // country to filter by — same convention as the Home page's tab default).
+  // An EXPLICIT mode (the mode toggle, or any real search, always sets one
+  // via routeData) is still honored even for guests, so choosing Curriculum
+  // on purpose shows the sign-in banner below instead of silently switching.
+  const mode = STATE.routeData?.mode || (isGuest ? 'science' : STATE.searchMode) || 'curriculum';
   // Keep the mode-toggle button and STATE.searchMode in sync with whichever
   // mode this specific search is actually in -- this is what makes a
   // reloaded /search?q=...&mode=science URL come back showing "Science"
@@ -352,12 +360,33 @@ async function renderSearchPage(root) {
   const mobSearchInputEl = document.getElementById('mobSearchInput');
   if (searchInputEl) searchInputEl.value = q;
   if (mobSearchInputEl) mobSearchInputEl.value = q;
-  const u    = STATE.currentUser;
   const sort = normalizeSortArr(STATE.searchSort);
-  const isGuest = !STATE.loggedIn || !u;
   const isDefaultSort = sort.length === 1 && sort[0] === 'recommended';
 
   try {
+    if (isGuest && mode === 'curriculum') {
+      // ── CURRICULUM SEARCH, LOCKED (guest) ──────────────────────
+      // Mirrors the Home page's Curriculum-tab lock: a guest has no
+      // grade/country to match against, so rather than silently
+      // returning an unfiltered, unpersonalized list under a
+      // "Curriculum" label, show the same sign-in prompt used there.
+      root.innerHTML = `<div class="page">
+        <div class="member-gate" style="margin-top:8px">
+          <div class="member-gate-icon">🔒</div>
+          <div class="member-gate-title">Curriculum search is personal</div>
+          <div class="member-gate-sub">Sign in and we'll search only summaries that match your exact grade, school type, and country — not everything on the platform.</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="openSignIn()"><i class="fas fa-right-to-bracket"></i> Sign In</button>
+            <button class="btn btn-ghost-gold" onclick="openSignUp()"><i class="fas fa-user-plus"></i> Sign Up</button>
+          </div>
+          <div style="margin-top:16px">
+            <span class="sec-more" onclick="navigate('search',{q:STATE.routeData?.q||'',mode:'science'})"><i class="fas fa-flask"></i> Or search the Science Feed →</span>
+          </div>
+        </div>
+      </div>`;
+      return;
+    }
+
     // The client always re-applies the real sort afterward (needed for
     // multi-key compound sorts anyway), so just fetch a sensible base order.
     let params = `sort=recommended`;
@@ -601,7 +630,7 @@ async function renderViewer(root, id) {
       </div>
       <div class="viewer-nav">
         <button class="btn btn-surf btn-sm" onclick="changeViewPage(-1)" ${pg <= 1 ? 'disabled style="opacity:.4"' : ''}><i class="fas fa-chevron-left"></i> Prev</button>
-        <div class="page-ind">Page ${pg} of ${pages.length} <span style="color:var(--text3)">· ${s.pages} total</span></div>
+        <div class="page-ind">Page ${pg} of ${pages.length}</div>
         <button class="btn btn-surf btn-sm" onclick="changeViewPage(1)" ${pg >= pages.length ? 'disabled style="opacity:.4"' : ''}>Next <i class="fas fa-chevron-right"></i></button>
       </div>
       <div class="viewer-body" style="margin-top:16px">
@@ -1567,7 +1596,7 @@ async function renderAdmin(root) {
           <div class="admin-row__main"><div class="admin-row__title">${s.title}</div><div class="admin-row__sub">${s.author||'?'} · ${s.subject} · ${s.country} · ${s.grade}</div></div>
           <div class="admin-row__actions">
             <button class="btn btn-success btn-sm" onclick="aApprove('${s.id}')"><i class="fas fa-check"></i> Approve</button>
-            <button class="btn btn-danger btn-sm" onclick="aDecline('${s.id}')"><i class="fas fa-times"></i> Decline</button>
+            <button class="btn btn-danger btn-sm" onclick="openDeclineModal('${s.id}','${(s.title||'').replace(/'/g,"\\'")}')"><i class="fas fa-times"></i> Decline</button>
             <button class="btn btn-surf btn-sm" onclick="navigate('viewer',{id:'${s.id}'})"><i class="fas fa-eye"></i></button>
           </div>
         </div>`).join('') : `<div style="padding:18px;text-align:center;color:var(--text2);font-size:13px">✅ No pending uploads</div>`}
@@ -2117,7 +2146,7 @@ async function adminDrill(type) {
         </div>
         <div class="admin-row__actions">
           <button class="btn btn-success btn-sm" onclick="aApprove('${s.id}')"><i class="fas fa-check"></i> Approve</button>
-          <button class="btn btn-danger btn-sm" onclick="aDecline('${s.id}')"><i class="fas fa-times"></i> Decline</button>
+          <button class="btn btn-danger btn-sm" onclick="openDeclineModal('${s.id}','${(s.title||'').replace(/'/g,"\\'")}')"><i class="fas fa-times"></i> Decline</button>
           <button class="btn btn-surf btn-sm" onclick="navigate('viewer',{id:'${s.id}'})"><i class="fas fa-eye"></i></button>
         </div>
       </div>`).join('') : `<div style="padding:20px;text-align:center;color:var(--text2)">✅ No pending uploads</div>`;
@@ -2183,7 +2212,7 @@ async function adminDrill(type) {
         </div>
         <div class="admin-row__actions">
           <button class="btn btn-surf btn-sm" onclick="navigate('viewer',{id:'${r.summary_id}'})"><i class="fas fa-eye"></i> View</button>
-          <button class="btn btn-danger btn-sm" onclick="aDecline('${r.summary_id}')"><i class="fas fa-trash"></i> Remove</button>
+          <button class="btn btn-danger btn-sm" onclick="openDeclineModal('${r.summary_id}','${(r.summary_title||'').replace(/'/g,"\\'")}')"><i class="fas fa-trash"></i> Remove</button>
         </div>
       </div>`).join('') : `<div style="padding:20px;text-align:center;color:var(--text2)">✅ No pending reports</div>`;
 
@@ -2281,38 +2310,69 @@ async function resolveSiteReport(id, status) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-async function aBanUser(id) {
-  try {
-    await api('PATCH', `/admin/users/${id}/ban`);
-    toast('User banned', 'error', 'fa-ban');
-    adminDrill(STATE._adminDrill); // refresh drill panel
-    renderAdmin(document.getElementById('appRoot'));
-  } catch (e) { toast(e.message, 'error', 'fa-times'); }
-}
-
-async function aUnbanUser(id) {
-  try {
-    await api('PATCH', `/admin/users/${id}/unban`);
-    toast('User unbanned ✅', 'success', 'fa-check');
-    adminDrill(STATE._adminDrill);
-    renderAdmin(document.getElementById('appRoot'));
-  } catch (e) { toast(e.message, 'error', 'fa-times'); }
+// Re-renders whichever moderation dashboard is currently open. Admin and
+// Supervisor share this so a refresh after approve/decline/ban always lands
+// back on the right page instead of one of them hardcoding renderAdmin.
+function refreshModerationView() {
+  const root = document.getElementById('appRoot');
+  if (STATE.route === 'supervisor') renderSupervisor(root);
+  else renderAdmin(root);
 }
 
 async function aApprove(id) {
   try {
     await api('PATCH', `/summaries/${id}/approve`);
     toast('Approved! ✅', 'success', 'fa-circle-check');
-    renderAdmin(document.getElementById('appRoot'));
+    logActivity('approve_summary', 'summary', id, '');
+    refreshModerationView();
   } catch (e) { toast(e.message, 'error', 'fa-times'); }
 }
 
-async function aDecline(id) {
+// ── Decline modal — a reason is required and gets emailed to the author.
+// Used for both the pending-review queue and the reported-content "Remove"
+// action, since both are "we're taking your content down, here's why".
+function openDeclineModal(id, title) {
+  document.getElementById('declineOverlay')?.remove();
+  const ov = document.createElement('div'); ov.className = 'overlay'; ov.id = 'declineOverlay';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="modal modal--narrow"><div class="modal-drag"></div>
+    <div class="modal-head">
+      <div class="modal-title"><i class="fas fa-times" style="color:var(--coral)"></i> Decline &amp; Notify Author</div>
+      <button class="modal-close" onclick="document.getElementById('declineOverlay').remove()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="info-box" style="margin-bottom:14px;font-size:12px">
+        This removes <b>"${esc(title || '')}"</b>. The author is emailed your reason so they know what to fix.
+      </div>
+      <div class="field">
+        <label>Reason <span style="color:var(--coral)">*</span></label>
+        <textarea class="textarea" id="decline-reason-text" placeholder="e.g. Doesn't match the selected grade's curriculum — please align with the official syllabus and resubmit." style="min-height:100px"></textarea>
+      </div>
+      <div id="decline-err" style="color:var(--coral);font-size:12px;margin-top:8px;display:none"></div>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button class="btn btn-danger btn-lg" style="flex:1" onclick="executeDecline('${id}')">
+          <i class="fas fa-paper-plane"></i> Decline &amp; Email Author
+        </button>
+        <button class="btn btn-surf" onclick="document.getElementById('declineOverlay').remove()">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+
+async function executeDecline(id) {
+  const reason = document.getElementById('decline-reason-text')?.value?.trim();
+  const errEl = document.getElementById('decline-err');
+  if (!reason) { errEl.textContent = 'Please explain why, so the author knows what to fix.'; errEl.style.display = ''; return; }
   try {
-    await api('PATCH', `/summaries/${id}/decline`);
-    toast('Declined', 'error', 'fa-times');
-    renderAdmin(document.getElementById('appRoot'));
-  } catch (e) { toast(e.message, 'error', 'fa-times'); }
+    await api('PATCH', `/summaries/${id}/decline`, { reason });
+    document.getElementById('declineOverlay')?.remove();
+    toast('Declined. Email sent to author. 📧', 'error', 'fa-times');
+    logActivity('decline_summary', 'summary', id, reason);
+    refreshModerationView();
+  } catch (e) {
+    errEl.textContent = e.message; errEl.style.display = '';
+  }
 }
 
 async function adminRemoveSummary(id) {
@@ -2877,6 +2937,11 @@ async function adminRejectWithdrawal(id) {
 
 // ══════════════════════════════════════════════════════
 //  SUPERVISOR DASHBOARD
+//  Scope is intentionally narrow: review pending summaries (approve /
+//  decline with a reason, emailed to the author) and ban users (with a
+//  reason, emailed to them) — nothing else. Every action below calls the
+//  EXACT SAME functions the Admin dashboard uses — aApprove, openDeclineModal,
+//  openBanModal — there is no separate "supervisor version" of this logic.
 // ══════════════════════════════════════════════════════
 async function renderSupervisor(root) {
   const u = STATE.currentUser;
@@ -2885,15 +2950,19 @@ async function renderSupervisor(root) {
     return;
   }
   try {
-    const pending = await api('GET', '/summaries/pending');
+    const [pending, myActivity] = await Promise.all([
+      api('GET', '/summaries/pending').catch(() => []),
+      api('GET', '/admin/my-activity').catch(() => []),
+    ]);
     const pendingArr = pending || [];
+    const activityArr = myActivity || [];
 
     root.innerHTML = `<div class="page">
       <div class="admin-hero">
         <div class="admin-hero__icon"><i class="fas fa-eye"></i></div>
         <div>
           <div class="admin-hero__title">Supervision Queue</div>
-          <div class="admin-hero__sub">Review incoming summaries · Verify accuracy · Check for plagiarism</div>
+          <div class="admin-hero__sub">Review incoming summaries · Verify accuracy · Ban rule-breakers</div>
         </div>
         <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
           <span class="badge" style="background:var(--amber-dim);color:var(--amber);font-size:13px;padding:8px 14px">
@@ -2937,14 +3006,25 @@ async function renderSupervisor(root) {
         </div>
       </div>
 
-      <!-- MY REVIEW HISTORY (last 20 approved by this supervisor) -->
+      <!-- BAN USERS — the supervisor's only other permitted action -->
       <div class="admin-panel" style="margin-top:18px">
         <div class="admin-panel-head">
-          <h3><i class="fas fa-clock-rotate-left" style="color:var(--amber)"></i> Your Recent Approvals</h3>
+          <h3><i class="fas fa-user-slash" style="color:var(--coral)"></i> Ban Users</h3>
+          <input class="admin-search" id="svUserSearchInput" placeholder="🔍 Search by name, email or @username…" oninput="svFilterUsers(this.value)">
         </div>
-        <div id="svHistoryList"><div style="padding:18px;text-align:center;color:var(--text2);font-size:13px">History not tracked in demo</div></div>
+        <div id="svUserList"><div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div></div>
+      </div>
+
+      <!-- MY RECENT ACTIONS (real data — this supervisor's own approve/decline/ban history only) -->
+      <div class="admin-panel" style="margin-top:18px">
+        <div class="admin-panel-head">
+          <h3><i class="fas fa-clock-rotate-left" style="color:var(--amber)"></i> Your Recent Actions</h3>
+        </div>
+        <div id="svHistoryList">${svHistoryRows(activityArr)}</div>
       </div>
     </div>`;
+
+    svLoadUsers();
 
   } catch(e) {
     root.innerHTML = `<div class="page"><div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error loading queue</div><div class="empty-sub">${esc(e.message)}</div></div></div>`;
@@ -2970,14 +3050,11 @@ function svSummaryRow(s) {
       <button class="btn btn-surf btn-sm" onclick="navigate('viewer',{id:'${s.id}'})">
         <i class="fas fa-eye"></i> Preview
       </button>
-      <button class="btn btn-success btn-sm" onclick="svApprove('${s.id}')">
+      <button class="btn btn-success btn-sm" onclick="aApprove('${s.id}')">
         <i class="fas fa-check"></i> Approve
       </button>
-      <button class="btn btn-danger btn-sm" onclick="svDecline('${s.id}')">
+      <button class="btn btn-danger btn-sm" onclick="openDeclineModal('${s.id}','${(s.title||'').replace(/'/g,"\\'")}')">
         <i class="fas fa-times"></i> Decline
-      </button>
-      <button class="btn btn-surf btn-sm" onclick="svFlag('${s.id}')">
-        <i class="fas fa-flag"></i> Flag
       </button>
     </div>
   </div>`;
@@ -2990,26 +3067,60 @@ function svFilter(val) {
   });
 }
 
-async function svApprove(id) {
+// ── Ban Users panel — lists active users with a Ban button that opens the
+// exact same modal (openBanModal/executeBan) the Admin dashboard uses.
+// Already-banned users show a status pill only: unbanning stays admin-only.
+async function svLoadUsers(q) {
+  const el = document.getElementById('svUserList');
+  if (!el) return;
   try {
-    await api('PATCH', `/admin/summaries/${id}/approve`);
-    const row = document.getElementById(`svRow_${id}`);
-    if (row) { row.style.opacity = '0.4'; row.style.transition = '.3s'; setTimeout(() => row.remove(), 350); }
-    toast('✅ Approved & published!', 'success', 'fa-circle-check');
-  } catch(e) { toast(e.message, 'error'); }
+    const users = await api('GET', `/admin/users${q ? '?q=' + encodeURIComponent(q) : ''}`) || [];
+    el.innerHTML = users.length ? users.map(usr => `<div class="admin-row">
+      <div class="admin-row__main">
+        <div class="admin-row__title">
+          ${esc(usr.name)} ${usr.username ? `<span style="color:var(--amber);font-size:11px;font-weight:600">@${esc(usr.username)}</span>` : ''}
+        </div>
+        <div class="admin-row__sub">${esc(usr.email)} · ${esc(usr.country||'—')} · ${usr.uploads||0} uploads</div>
+      </div>
+      <span class="spill ${usr.status==='active'?'s-active':'s-banned'}">${esc(usr.status)}</span>
+      <div class="admin-row__actions">
+        ${usr.status==='active'
+          ? `<button class="btn btn-danger btn-sm" onclick="openBanModal('${usr.id}','${(usr.name||'').replace(/'/g,"\\'")}')"><i class="fas fa-ban"></i> Ban</button>`
+          : ''}
+        <button class="btn btn-surf btn-sm" onclick="navigate('creator',{id:'${usr.id}'})"><i class="fas fa-eye"></i></button>
+      </div>
+    </div>`).join('') : `<div style="padding:18px;text-align:center;color:var(--text2)">No users found</div>`;
+  } catch (e) {
+    el.innerHTML = `<div style="padding:18px;text-align:center;color:var(--coral)">${esc(e.message)}</div>`;
+  }
 }
 
-async function svDecline(id) {
-  if (!confirm('Decline and permanently delete this summary?')) return;
-  try {
-    await api('DELETE', `/admin/summaries/${id}`);
-    const row = document.getElementById(`svRow_${id}`);
-    if (row) { row.style.opacity = '0.3'; setTimeout(() => row.remove(), 350); }
-    toast('Declined and removed', 'info', 'fa-times');
-  } catch(e) { toast(e.message, 'error'); }
+let _svUserSearchTimer;
+function svFilterUsers(v) {
+  clearTimeout(_svUserSearchTimer);
+  _svUserSearchTimer = setTimeout(() => svLoadUsers(v), 250);
 }
 
-async function svFlag(id) {
-  const reason = prompt('Flag reason (optional):');
-  toast('Summary flagged for admin review 🚩', 'info', 'fa-flag');
+function svHistoryRows(activityArr) {
+  if (!activityArr || !activityArr.length) {
+    return `<div style="padding:18px;text-align:center;color:var(--text2);font-size:13px">No actions yet — approvals, declines, and bans you make will show up here.</div>`;
+  }
+  const iconMap = { ban_user: 'fa-ban', approve_summary: 'fa-circle-check', decline_summary: 'fa-circle-xmark' };
+  const labelMap = { ban_user: 'Banned a user', approve_summary: 'Approved a summary', decline_summary: 'Declined a summary' };
+  return activityArr.map(a => {
+    const ico = iconMap[a.action] || 'fa-circle';
+    const label = labelMap[a.action] || a.action;
+    const time = new Date((a.created_at||0) * 1000).toLocaleString();
+    return `<div class="admin-row" style="padding:10px 16px">
+      <div class="admin-row__main">
+        <div class="admin-row__title" style="font-size:12px">
+          <i class="fas ${ico}" style="color:var(--amber);width:14px;margin-right:6px"></i>
+          <b>${esc(label)}</b>
+          ${a.details ? `<span style="color:var(--text3);font-size:11px;margin-left:6px">${esc(a.details)}</span>` : ''}
+        </div>
+        <div class="admin-row__sub" style="font-size:10.5px">${time}</div>
+      </div>
+    </div>`;
+  }).join('');
 }
+

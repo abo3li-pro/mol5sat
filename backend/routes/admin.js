@@ -2,34 +2,22 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db');
-const { requireAdmin, revokeAllUserTokens } = require('../middleware/auth');
+const { requireAdmin, requireSupervisor, revokeAllUserTokens } = require('../middleware/auth');
 const { sendBanEmail } = require('../utils/email');
 const { log } = require('../utils/activity');
 
-// All admin routes require admin auth
-router.use(requireAdmin);
+// ══════════════════════════════════════════════════════════════
+// SUPERVISOR-ACCESSIBLE ROUTES
+// Registered BEFORE the blanket `router.use(requireAdmin)` further
+// down — Express stops at the first route that matches and responds,
+// so these three run independently of that gate. They are the ONLY
+// admin.js endpoints a supervisor may call; everything else in this
+// file stays admin-only. There is no separate "supervisor version"
+// of the ban logic — admins and supervisors run the exact same code.
+// ══════════════════════════════════════════════════════════════
 
-// GET /api/admin/stats
-router.get('/stats', (req, res) => {
-  expirePromotions(); // clean up expired promotions each time the dashboard loads
-  const totalUsers = db.prepare('SELECT COUNT(*) as c FROM users WHERE role != ?').get('admin').c;
-  const totalSummaries = db.prepare('SELECT COUNT(*) as c FROM summaries').get().c;
-  const approved = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE approved=1').get().c;
-  const pending = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE approved=0').get().c;
-  const banned = db.prepare('SELECT COUNT(*) as c FROM users WHERE status=?').get('banned').c;
-  const totalViews = db.prepare('SELECT SUM(views) as v FROM summaries').get().v || 0;
-  const totalLikes = db.prepare('SELECT SUM(likes) as l FROM summaries').get().l || 0;
-  const activeBans = db.prepare(`SELECT COUNT(*) as c FROM ip_bans WHERE permanent=1 OR expires_at > ?`).get(Math.floor(Date.now()/1000)).c;
-  const plagiarismPending = db.prepare("SELECT COUNT(*) as c FROM plagiarism_cases WHERE verdict='pending'").get().c;
-  const plagiarismThieves = db.prepare("SELECT COUNT(*) as c FROM plagiarism_cases WHERE verdict='thief'").get().c;
-  const plagiarismSemi    = db.prepare("SELECT COUNT(*) as c FROM plagiarism_cases WHERE verdict='semi'").get().c;
-  const reportsPending    = db.prepare("SELECT COUNT(*) as c FROM reports WHERE status='pending'").get().c;
-
-  res.json({ totalUsers, totalSummaries, approved, pending, banned, totalViews, totalLikes, activeBans, plagiarismPending, plagiarismThieves, plagiarismSemi, reportsPending });
-});
-
-// GET /api/admin/users
-router.get('/users', (req, res) => {
+// GET /api/admin/users — a supervisor needs this to find who to ban
+router.get('/users', requireSupervisor, (req, res) => {
   const { q, status } = req.query;
   let where = "role != 'admin'";
   let params = [];
@@ -42,31 +30,30 @@ router.get('/users', (req, res) => {
   res.json(users);
 });
 
-// GET /api/admin/activity — full activity log
-router.get('/activity', (req, res) => {
-  const { limit = 200, offset = 0, user_id, action } = req.query;
-  let where = [];
-  let params = [];
-  if (user_id) { where.push('user_id=?'); params.push(user_id); }
-  if (action)  { where.push('action=?');  params.push(action); }
-  const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
-  const rows = db.prepare(`SELECT * FROM activity_log ${clause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
-    .all(...params, parseInt(limit) || 200, parseInt(offset) || 0);
-  const total = db.prepare(`SELECT COUNT(*) as c FROM activity_log ${clause}`).get(...params).c;
-  res.json({ rows, total });
+// GET /api/admin/my-activity — a supervisor's OWN moderation history only.
+// Deliberately narrow (self-scoped, 3 action types only) so it can never
+// become a back door into the full platform-wide activity log below.
+router.get('/my-activity', requireSupervisor, (req, res) => {
+  const rows = db.prepare(`SELECT * FROM activity_log WHERE user_id=? AND action IN ('approve_summary','decline_summary','ban_user') ORDER BY created_at DESC LIMIT 20`).all(req.user.id);
+  res.json(rows);
 });
 
-// PATCH /api/admin/users/:id/ban — ban with duration (days) + email notification
-router.patch('/users/:id/ban', async (req, res) => {
-  const { reason, ban_type, ban_days, ip_ban, ip_address, permanent_ip } = req.body;
+// PATCH /api/admin/users/:id/ban — ban with duration (days) + REQUIRED reason + email notification
+router.patch('/users/:id/ban', requireSupervisor, async (req, res) => {
+  const { reason, message, ban_type, ban_days, ip_ban, ip_address, permanent_ip } = req.body;
+  // The frontend's ban modal sends a short `reason` code (e.g. "spam") AND a
+  // full human-written `message` — the message is what should actually be
+  // stored/emailed when present, since "Reason: spam" is a poor email to send.
+  const banReason = ((message && message.trim()) || (reason && reason.trim()) || '');
+  if (!banReason) return res.status(400).json({ error: 'A ban reason is required.' });
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (user.role === 'admin') return res.status(403).json({ error: 'Cannot ban admin' });
+  if (user.role === 'supervisor' && req.user.role !== 'admin') return res.status(403).json({ error: 'Only an admin can ban a supervisor' });
 
   const isPermanent = ban_type === 'permanent';
   const days = Math.max(1, Math.min(3650, parseInt(ban_days) || 7));
   const banExpiresAt = isPermanent ? 0 : Math.floor(Date.now() / 1000) + (days * 86400);
-  const banReason = (reason || 'Violation of platform rules').trim();
 
   db.prepare('UPDATE users SET status=?, ban_reason=?, ban_expires_at=?, ban_type=? WHERE id=?')
     .run('banned', banReason, banExpiresAt, ban_type || 'temporary', req.params.id);
@@ -95,6 +82,42 @@ router.patch('/users/:id/ban', async (req, res) => {
   });
   log({ userId: req.user.id, userName: req.user.name, action: 'ban_user', entityType: 'user',
     entityId: req.params.id, details: `Banned ${user.name}: ${banReason} (${ban_type||'temporary'}, ${days}d)`, ip: req.ip||'' });
+});
+
+// Everything below this point is admin-only.
+router.use(requireAdmin);
+
+// GET /api/admin/stats
+router.get('/stats', (req, res) => {
+  expirePromotions(); // clean up expired promotions each time the dashboard loads
+  const totalUsers = db.prepare('SELECT COUNT(*) as c FROM users WHERE role != ?').get('admin').c;
+  const totalSummaries = db.prepare('SELECT COUNT(*) as c FROM summaries').get().c;
+  const approved = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE approved=1').get().c;
+  const pending = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE approved=0').get().c;
+  const banned = db.prepare('SELECT COUNT(*) as c FROM users WHERE status=?').get('banned').c;
+  const totalViews = db.prepare('SELECT SUM(views) as v FROM summaries').get().v || 0;
+  const totalLikes = db.prepare('SELECT SUM(likes) as l FROM summaries').get().l || 0;
+  const activeBans = db.prepare(`SELECT COUNT(*) as c FROM ip_bans WHERE permanent=1 OR expires_at > ?`).get(Math.floor(Date.now()/1000)).c;
+  const plagiarismPending = db.prepare("SELECT COUNT(*) as c FROM plagiarism_cases WHERE verdict='pending'").get().c;
+  const plagiarismThieves = db.prepare("SELECT COUNT(*) as c FROM plagiarism_cases WHERE verdict='thief'").get().c;
+  const plagiarismSemi    = db.prepare("SELECT COUNT(*) as c FROM plagiarism_cases WHERE verdict='semi'").get().c;
+  const reportsPending    = db.prepare("SELECT COUNT(*) as c FROM reports WHERE status='pending'").get().c;
+
+  res.json({ totalUsers, totalSummaries, approved, pending, banned, totalViews, totalLikes, activeBans, plagiarismPending, plagiarismThieves, plagiarismSemi, reportsPending });
+});
+
+// GET /api/admin/activity — full activity log
+router.get('/activity', (req, res) => {
+  const { limit = 200, offset = 0, user_id, action } = req.query;
+  let where = [];
+  let params = [];
+  if (user_id) { where.push('user_id=?'); params.push(user_id); }
+  if (action)  { where.push('action=?');  params.push(action); }
+  const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const rows = db.prepare(`SELECT * FROM activity_log ${clause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .all(...params, parseInt(limit) || 200, parseInt(offset) || 0);
+  const total = db.prepare(`SELECT COUNT(*) as c FROM activity_log ${clause}`).get(...params).c;
+  res.json({ rows, total });
 });
 
 // PATCH /api/admin/users/:id/unban

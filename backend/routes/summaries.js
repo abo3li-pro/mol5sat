@@ -8,6 +8,7 @@ const { requireAuth, optionalAuth, requireAdmin, requireSupervisor } = require('
 const { embedWatermark, decodeWatermark, hasWatermark, computeSimilarity, classifySimilarity } = require('../utils/watermark');
 
 const { log, notifyAdmins } = require('../utils/activity');
+const { sendDeclineEmail } = require('../utils/email');
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, path.join(__dirname, '../uploads')),
   filename: (req, file, cb) => {
@@ -306,7 +307,7 @@ router.get('/:id', optionalAuth, (req, res) => {
 });
 
 // PATCH /api/summaries/:id/approve
-router.patch('/:id/approve', requireAdmin, (req, res) => {
+router.patch('/:id/approve', requireSupervisor, (req, res) => {
   const s = db.prepare('SELECT * FROM summaries WHERE id=?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
 
@@ -351,16 +352,41 @@ router.patch('/:id/approve', requireAdmin, (req, res) => {
       );
     }
   }
+  log({ userId: req.user.id, userName: req.user.name, action: 'approve_summary', entityType: 'summary',
+    entityId: s.id, details: `Approved "${s.title}" by ${author?.name || s.author_id}`, ip: req.ip || '' });
   res.json({ success: true });
 });
 
-// PATCH /api/summaries/:id/decline
-router.patch('/:id/decline', requireAdmin, (req, res) => {
+// PATCH /api/summaries/:id/decline — REQUIRES a reason, emailed to the author
+router.patch('/:id/decline', requireSupervisor, async (req, res) => {
+  const { reason } = req.body;
+  if (!reason || !reason.trim()) return res.status(400).json({ error: 'A decline reason is required.' });
   const s = db.prepare('SELECT * FROM summaries WHERE id=?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
-  db.prepare('INSERT INTO notifications (id,user_id,text,summary_id) VALUES (?,?,?,?)').run('n_'+uuidv4().replace(/-/g,'').slice(0,10), s.author_id, `❌ "${s.title}" was not approved. Please revise and resubmit.`, s.id);
+  const declineReason = reason.trim();
+  const author = db.prepare('SELECT * FROM users WHERE id=?').get(s.author_id);
+
+  db.prepare('INSERT INTO notifications (id,user_id,text,summary_id) VALUES (?,?,?,?)').run(
+    'n_'+uuidv4().replace(/-/g,'').slice(0,10), s.author_id,
+    `❌ "${s.title}" was not approved. Reason: ${declineReason}`, s.id
+  );
   db.prepare('DELETE FROM summaries WHERE id=?').run(req.params.id);
-  res.json({ success: true });
+
+  let emailResult = { sent: false };
+  if (author?.email) {
+    emailResult = await sendDeclineEmail({
+      to: author.email, name: author.name, reason: declineReason, title: s.title,
+    }).catch(() => ({ sent: false }));
+  }
+
+  log({ userId: req.user.id, userName: req.user.name, action: 'decline_summary', entityType: 'summary',
+    entityId: req.params.id, details: `Declined "${s.title}" by ${author?.name || s.author_id}: ${declineReason}`, ip: req.ip || '' });
+
+  res.json({
+    success: true,
+    email_sent: emailResult.sent,
+    email_note: emailResult.sent ? null : 'SMTP not configured — set SMTP_HOST in .env to send decline emails automatically.',
+  });
 });
 
 // DELETE /api/summaries/:id

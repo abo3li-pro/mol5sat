@@ -24,19 +24,49 @@ const DEFAULT_JWT    = 'brAqi$T;%!p^^ZtM!q7,/*:>vXFhf8z.DEw~`,ETJJd%dyk?OS,_*Cf4
 const DEFAULT_WALLET = 'a3f8c2d9e1b74560f2a1c8d3e7b90425f1e6c8a2d4b7e9f0c3a5d2b8e1f4c7a0';
 const secretWarnings = [];
 
-// JWT_SECRET — fall back to a random one for this session if not set (NOT safe for prod)
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET === DEFAULT_JWT) {
-  const generated = require('crypto').randomBytes(64).toString('hex');
-  process.env.JWT_SECRET = generated;
-  secretWarnings.push('JWT_SECRET is missing or default — generated a random one for this session. Set it permanently in Railway Variables!');
+// JWT_SECRET / WALLET_ENCRYPTION_KEY — if not set via a Railway env var, this used
+// to fall back to a value that was randomly regenerated on EVERY process restart.
+// That silently invalidated every already-signed-in user's token the moment
+// Railway restarted the dyno for any reason (a redeploy, a crash, a health-check
+// bounce) — which is exactly what "session expired, please sign in again" right
+// after an unrelated action (banning a user, uploading a summary) actually was:
+// the server had restarted underneath them mid-session, not their token expiring.
+// Fix: persist the generated value in the database itself, so it's stable across
+// restarts even without a Railway env var. An explicit env var still always wins.
+function getOrCreatePersistedSecret(envVar, defaultValue, bytes) {
+  const current = process.env[envVar];
+  if (current && current !== defaultValue) return { value: current, source: 'env' };
+  const settingsKey = `_secret_${envVar}`;
+  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(settingsKey);
+  if (row?.value) return { value: row.value, source: 'db' };
+  const generated = require('crypto').randomBytes(bytes).toString('hex');
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(settingsKey, generated);
+  return { value: generated, source: 'generated' };
 }
 
-// WALLET_ENCRYPTION_KEY — same fallback
-if (!process.env.WALLET_ENCRYPTION_KEY || process.env.WALLET_ENCRYPTION_KEY === DEFAULT_WALLET) {
-  const generated = require('crypto').randomBytes(32).toString('hex');
-  process.env.WALLET_ENCRYPTION_KEY = generated;
-  secretWarnings.push('WALLET_ENCRYPTION_KEY is missing or default — generated a random one for this session. Set it permanently in Railway Variables!');
+const jwtSecret = getOrCreatePersistedSecret('JWT_SECRET', DEFAULT_JWT, 64);
+process.env.JWT_SECRET = jwtSecret.value;
+if (jwtSecret.source === 'generated') {
+  secretWarnings.push('JWT_SECRET is missing or default — generated one and saved it to the database so sessions survive restarts. For best practice, set it permanently in Railway Variables too.');
 }
+
+const walletKey = getOrCreatePersistedSecret('WALLET_ENCRYPTION_KEY', DEFAULT_WALLET, 32);
+process.env.WALLET_ENCRYPTION_KEY = walletKey.value;
+if (walletKey.source === 'generated') {
+  secretWarnings.push('WALLET_ENCRYPTION_KEY is missing or default — generated one and saved it to the database so encrypted wallet data stays readable across restarts. Set it permanently in Railway Variables too.');
+}
+
+// Belt-and-suspenders: a single unexpected error inside an async route handler
+// should never be able to take the whole process (and every other user's
+// session) down. Without this, an uncaught rejection anywhere crashes the
+// entire Node process — Railway then restarts it, which (even with the fix
+// above) still drops every in-flight request and briefly takes the site offline.
+process.on('unhandledRejection', (err) => {
+  console.error('❌ Unhandled promise rejection (kept the server alive):', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught exception (kept the server alive):', err);
+});
 
 if (secretWarnings.length) {
   console.warn('\n⚠️  SECRET WARNING — the server started, but these must be fixed:\n' +

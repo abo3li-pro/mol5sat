@@ -2,7 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requireSupervisor } = require('../middleware/auth');
 const { notifyAdmins } = require('../utils/activity');
 
 // ── Allowed report reasons ────────────────────────────────────
@@ -44,8 +44,8 @@ router.post('/', requireAuth, (req, res) => {
   res.status(201).json({ success: true });
 });
 
-// GET /api/reports/admin — all reports for admin
-router.get('/admin', requireAdmin, (req, res) => {
+// GET /api/reports/admin — all reports (admin + supervisor: they review content, they should see what's been reported on it)
+router.get('/admin', requireSupervisor, (req, res) => {
   const { status } = req.query;
   const where = status ? 'WHERE r.status=?' : '';
   const params = status ? [status] : [];
@@ -69,8 +69,8 @@ router.get('/admin', requireAdmin, (req, res) => {
   res.json(rows);
 });
 
-// PATCH /api/reports/:id/resolve — admin resolves a report
-router.patch('/:id/resolve', requireAdmin, (req, res) => {
+// PATCH /api/reports/:id/resolve — admin or supervisor resolves a report
+router.patch('/:id/resolve', requireSupervisor, (req, res) => {
   const { status, admin_note } = req.body; // status: resolved | dismissed
   if (!['resolved','dismissed'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
   const report = db.prepare('SELECT * FROM reports WHERE id=?').get(req.params.id);

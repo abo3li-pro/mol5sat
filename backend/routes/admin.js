@@ -34,7 +34,7 @@ router.get('/users', requireSupervisor, (req, res) => {
 // Deliberately narrow (self-scoped, 3 action types only) so it can never
 // become a back door into the full platform-wide activity log below.
 router.get('/my-activity', requireSupervisor, (req, res) => {
-  const rows = db.prepare(`SELECT * FROM activity_log WHERE user_id=? AND action IN ('approve_summary','decline_summary','ban_user') ORDER BY created_at DESC LIMIT 20`).all(req.user.id);
+  const rows = db.prepare(`SELECT * FROM activity_log WHERE user_id=? AND action IN ('approve_summary','decline_summary','ban_user','unban_user') ORDER BY created_at DESC LIMIT 20`).all(req.user.id);
   res.json(rows);
 });
 
@@ -84,6 +84,21 @@ router.patch('/users/:id/ban', requireSupervisor, async (req, res) => {
     entityId: req.params.id, details: `Banned ${user.name}: ${banReason} (${ban_type||'temporary'}, ${days}d)`, ip: req.ip||'' });
 });
 
+// PATCH /api/admin/users/:id/unban — supervisor-accessible (see block comment
+// above: same handler, no forked "supervisor version")
+router.patch('/users/:id/unban', requireSupervisor, (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  db.prepare('UPDATE users SET status=?, ban_reason=?, ban_expires_at=?, ban_type=? WHERE id=?').run('active', '', 0, '', req.params.id);
+  // Must clear the revocation row from the original ban — otherwise requireAuth's
+  // "was this user ever banned after their account was created" check stays true
+  // forever, permanently locking them out even though status now shows 'active'.
+  db.prepare('DELETE FROM revoked_tokens WHERE jti=?').run(`user_ban_${req.params.id}`);
+  log({ userId: req.user.id, userName: req.user.name, action: 'unban_user', entityType: 'user',
+    entityId: req.params.id, details: `Unbanned ${user.name}`, ip: req.ip||'' });
+  res.json({ success: true });
+});
+
 // Everything below this point is admin-only.
 router.use(requireAdmin);
 
@@ -118,16 +133,6 @@ router.get('/activity', (req, res) => {
     .all(...params, parseInt(limit) || 200, parseInt(offset) || 0);
   const total = db.prepare(`SELECT COUNT(*) as c FROM activity_log ${clause}`).get(...params).c;
   res.json({ rows, total });
-});
-
-// PATCH /api/admin/users/:id/unban
-router.patch('/users/:id/unban', (req, res) => {
-  const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  db.prepare('UPDATE users SET status=? WHERE id=?').run('active', req.params.id);
-  log({ userId: req.user.id, userName: req.user.name, action: 'unban_user', entityType: 'user',
-    entityId: req.params.id, details: `Unbanned ${user.name}`, ip: req.ip||'' });
-  res.json({ success: true });
 });
 
 // ── IP BAN MANAGEMENT ─────────────────────────────────────

@@ -393,7 +393,7 @@ router.patch('/:id/decline', requireSupervisor, async (req, res) => {
 router.delete('/:id', requireAuth, (req, res) => {
   const s = db.prepare('SELECT * FROM summaries WHERE id=?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
-  if (req.user.role !== 'admin' && req.user.id !== s.author_id) return res.status(403).json({ error: 'Not authorized' });
+  if (req.user.role !== 'admin' && req.user.role !== 'supervisor' && req.user.id !== s.author_id) return res.status(403).json({ error: 'Not authorized' });
   db.prepare('DELETE FROM summaries WHERE id=?').run(req.params.id);
   db.prepare('UPDATE users SET uploads=MAX(0,uploads-1) WHERE id=?').run(s.author_id);
   res.json({ success: true });

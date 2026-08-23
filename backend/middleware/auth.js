@@ -76,9 +76,13 @@ function requireAdmin(req, res, next) {
 function revokeAllUserTokens(userId) {
   const now = Math.floor(Date.now() / 1000);
   // We can't enumerate all issued JTIs, so we use a user-level revocation timestamp
-  // Any token issued before this timestamp is invalid
-  db.prepare(`INSERT INTO revoked_tokens (jti, user_id, expires_at) VALUES (?, ?, ?)`)
-    .run(`user_ban_${userId}`, userId, now + 30 * 86400); // 30 days (max token life)
+  // Any token issued before this timestamp is invalid.
+  // INSERT OR REPLACE: jti is a PRIMARY KEY, so re-banning a user who was already
+  // banned-then-unbanned before (unban should clear this row, but this is a safe
+  // fallback either way) must refresh the timestamp instead of throwing a UNIQUE
+  // constraint error — a crash here previously took down the whole process.
+  db.prepare(`INSERT OR REPLACE INTO revoked_tokens (jti, user_id, expires_at, revoked_at) VALUES (?, ?, ?, ?)`)
+    .run(`user_ban_${userId}`, userId, now + 30 * 86400, now); // 30 days (max token life)
 }
 
 function requireSupervisor(req, res, next) {

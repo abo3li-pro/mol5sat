@@ -1848,7 +1848,8 @@ async function resolveReport(id, status) {
   try {
     await api('PATCH', `/reports/${id}/resolve`, { status, admin_note: note });
     toast(status === 'resolved' ? 'Report resolved ✅' : 'Report dismissed', 'success', 'fa-check');
-    aLoadReports('pending');
+    if (document.getElementById('svReportsList')) svLoadReports('pending');
+    else aLoadReports('pending');
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -2033,7 +2034,7 @@ async function executeBan(userId) {
     toast(`User banned ${expMsg}. Email sent. 📧`, 'error', 'fa-ban');
     logActivity('ban_user', 'user', userId, `Banned ${target?.name}: ${reason} (${isPermanent ? 'permanent' : days + 'd'})`);
     persistState();
-    renderAdmin(document.getElementById('appRoot'));
+    refreshModerationView();
   } catch (e) {
     showErr(e.message);
   }
@@ -2047,7 +2048,7 @@ async function aUnban(userId) {
     logActivity('unban_user', 'user', userId, `Unbanned ${target?.name || ''}`);
     persistState();
     toast('User unbanned ✅', 'success', 'fa-check');
-    renderAdmin(document.getElementById('appRoot'));
+    refreshModerationView();
   } catch (e) { toast(e.message, 'error', 'fa-times'); }
 }
 
@@ -2962,7 +2963,7 @@ async function renderSupervisor(root) {
         <div class="admin-hero__icon"><i class="fas fa-eye"></i></div>
         <div>
           <div class="admin-hero__title">Supervision Queue</div>
-          <div class="admin-hero__sub">Review incoming summaries · Verify accuracy · Ban rule-breakers</div>
+          <div class="admin-hero__sub">Review incoming summaries · See what's live and what's been reported · Ban rule-breakers</div>
         </div>
         <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
           <span class="badge" style="background:var(--amber-dim);color:var(--amber);font-size:13px;padding:8px 14px">
@@ -3006,10 +3007,31 @@ async function renderSupervisor(root) {
         </div>
       </div>
 
-      <!-- BAN USERS — the supervisor's only other permitted action -->
+      <!-- APPROVED CONTENT — read/browse visibility into everything live -->
       <div class="admin-panel" style="margin-top:18px">
         <div class="admin-panel-head">
-          <h3><i class="fas fa-user-slash" style="color:var(--coral)"></i> Ban Users</h3>
+          <h3><i class="fas fa-file-lines" style="color:var(--gold)"></i> Approved Content</h3>
+          <input class="admin-search" id="svApprovedSearchInput" placeholder="🔍 Filter…" oninput="svFilterApproved(this.value)">
+        </div>
+        <div id="svApprovedList"><div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div></div>
+      </div>
+
+      <!-- REPORTED CONTENT — same reports queue and Resolve/Dismiss admin uses -->
+      <div class="admin-panel" style="margin-top:18px">
+        <div class="admin-panel-head">
+          <h3><i class="fas fa-flag" style="color:var(--coral)"></i> Reported Content</h3>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-surf btn-sm" onclick="svLoadReports('pending')">Pending</button>
+            <button class="btn btn-surf btn-sm" onclick="svLoadReports('all')">All</button>
+          </div>
+        </div>
+        <div id="svReportsList"><div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div></div>
+      </div>
+
+      <!-- BAN / UNBAN USERS — the supervisor's other permitted action -->
+      <div class="admin-panel" style="margin-top:18px">
+        <div class="admin-panel-head">
+          <h3><i class="fas fa-user-slash" style="color:var(--coral)"></i> Ban / Unban Users</h3>
           <input class="admin-search" id="svUserSearchInput" placeholder="🔍 Search by name, email or @username…" oninput="svFilterUsers(this.value)">
         </div>
         <div id="svUserList"><div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div></div>
@@ -3025,6 +3047,8 @@ async function renderSupervisor(root) {
     </div>`;
 
     svLoadUsers();
+    svLoadApproved();
+    svLoadReports('pending');
 
   } catch(e) {
     root.innerHTML = `<div class="page"><div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error loading queue</div><div class="empty-sub">${esc(e.message)}</div></div></div>`;
@@ -3067,9 +3091,9 @@ function svFilter(val) {
   });
 }
 
-// ── Ban Users panel — lists active users with a Ban button that opens the
-// exact same modal (openBanModal/executeBan) the Admin dashboard uses.
-// Already-banned users show a status pill only: unbanning stays admin-only.
+// ── Ban/Unban Users panel — lists users with Ban/Unban buttons that call the
+// exact same functions (openBanModal/executeBan, aUnban) the Admin dashboard
+// uses — identical mechanics, not a separate supervisor implementation.
 async function svLoadUsers(q) {
   const el = document.getElementById('svUserList');
   if (!el) return;
@@ -3080,13 +3104,13 @@ async function svLoadUsers(q) {
         <div class="admin-row__title">
           ${esc(usr.name)} ${usr.username ? `<span style="color:var(--amber);font-size:11px;font-weight:600">@${esc(usr.username)}</span>` : ''}
         </div>
-        <div class="admin-row__sub">${esc(usr.email)} · ${esc(usr.country||'—')} · ${usr.uploads||0} uploads</div>
+        <div class="admin-row__sub">${esc(usr.email)} · ${esc(usr.country||'—')} · ${usr.uploads||0} uploads${usr.status==='banned' && usr.ban_reason ? ` · Reason: ${esc(usr.ban_reason)}` : ''}</div>
       </div>
       <span class="spill ${usr.status==='active'?'s-active':'s-banned'}">${esc(usr.status)}</span>
       <div class="admin-row__actions">
         ${usr.status==='active'
           ? `<button class="btn btn-danger btn-sm" onclick="openBanModal('${usr.id}','${(usr.name||'').replace(/'/g,"\\'")}')"><i class="fas fa-ban"></i> Ban</button>`
-          : ''}
+          : `<button class="btn btn-success btn-sm" onclick="aUnban('${usr.id}')"><i class="fas fa-check"></i> Unban</button>`}
         <button class="btn btn-surf btn-sm" onclick="navigate('creator',{id:'${usr.id}'})"><i class="fas fa-eye"></i></button>
       </div>
     </div>`).join('') : `<div style="padding:18px;text-align:center;color:var(--text2)">No users found</div>`;
@@ -3101,12 +3125,82 @@ function svFilterUsers(v) {
   _svUserSearchTimer = setTimeout(() => svLoadUsers(v), 250);
 }
 
+// ── Approved Content panel — same data (/summaries?approved=1) and the same
+// Remove action (adminRemoveSummary) as admin's "Approved" stat-card drill-down.
+async function svLoadApproved() {
+  const el = document.getElementById('svApprovedList');
+  if (!el) return;
+  try {
+    const items = await api('GET', '/summaries?approved=1&limit=50') || [];
+    el.innerHTML = items.length ? items.map(s => `<div class="admin-row">
+      <div class="admin-row__main">
+        <div class="admin-row__title">${esc(s.title || '')}</div>
+        <div class="admin-row__sub">${esc(s.author||'?')} · ${esc(s.subject||'')} · ${esc(s.grade||'')} · ${esc(s.country||'')} · ${(s.views||0).toLocaleString()} views</div>
+      </div>
+      <span class="spill s-approved">Approved</span>
+      <div class="admin-row__actions">
+        <button class="btn btn-surf btn-sm" onclick="navigate('viewer',{id:'${s.id}'})"><i class="fas fa-eye"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="adminRemoveSummary('${s.id}')"><i class="fas fa-trash"></i></button>
+      </div>
+    </div>`).join('') : `<div style="padding:18px;text-align:center;color:var(--text2)">No approved summaries yet</div>`;
+  } catch (e) {
+    el.innerHTML = `<div style="padding:18px;text-align:center;color:var(--coral)">${esc(e.message)}</div>`;
+  }
+}
+function svFilterApproved(val) {
+  const v = val.toLowerCase();
+  document.querySelectorAll('#svApprovedList .admin-row').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(v) ? '' : 'none';
+  });
+}
+
+// ── Reported Content panel — same endpoint and row shape as admin's Reports
+// panel (aLoadReports), just writing into a different target element. Resolve
+// / Dismiss call the exact same shared resolveReport() function admin uses.
+async function svLoadReports(filter) {
+  const el = document.getElementById('svReportsList');
+  if (!el) return;
+  el.innerHTML = `<div style="padding:20px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>`;
+  try {
+    const status = filter === 'all' ? '' : 'pending';
+    const reports = await api('GET', `/reports/admin${status ? '?status=' + status : ''}`);
+    if (!reports?.length) {
+      el.innerHTML = `<div style="padding:18px;text-align:center;color:var(--text2);font-size:13px">✅ No ${filter === 'all' ? '' : 'pending '}reports</div>`;
+      return;
+    }
+    el.innerHTML = reports.map(r => `<div class="admin-row">
+      <div class="admin-row__main">
+        <div class="admin-row__title" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <span>${esc(r.summary_title || 'Deleted summary')}</span>
+          <span class="spill ${r.status==='pending'?'s-pending':r.status==='resolved'?'s-approved':'s-banned'}" style="font-size:10px">${esc(r.status)}</span>
+          <span class="spill" style="background:rgba(255,107,107,.12);color:var(--coral);font-size:10px">${esc(REPORT_REASON_LABELS[r.reason] || r.reason)}</span>
+        </div>
+        <div class="admin-row__sub">
+          By @${esc(r.author_username||r.author_name||'?')} · Reported by @${esc(r.reporter_username||r.reporter_name||'?')} · ${new Date(r.created_at*1000).toLocaleDateString()}
+        </div>
+        ${r.description ? `<div class="admin-row__sub" style="color:var(--text);font-style:italic;font-size:12px">"${esc(r.description.slice(0,200))}"</div>` : ''}
+        ${r.admin_note ? `<div class="admin-row__sub" style="color:var(--text3);font-size:11px">Note: ${esc(r.admin_note)}</div>` : ''}
+      </div>
+      <div class="admin-row__actions">
+        ${r.summary_id ? `<button class="btn btn-surf btn-sm" onclick="navigate('viewer',{id:'${r.summary_id}'})"><i class="fas fa-eye"></i> View</button>` : ''}
+        ${r.author_id ? `<button class="btn btn-surf btn-sm" onclick="navigate('creator',{id:'${r.author_id}'})"><i class="fas fa-user"></i></button>` : ''}
+        ${r.status === 'pending' ? `
+          <button class="btn btn-success btn-sm" onclick="resolveReport('${r.id}','resolved')"><i class="fas fa-check"></i> Resolve</button>
+          <button class="btn btn-surf btn-sm" onclick="resolveReport('${r.id}','dismissed')"><i class="fas fa-xmark"></i> Dismiss</button>
+        ` : ''}
+      </div>
+    </div>`).join('');
+  } catch (e) {
+    el.innerHTML = `<div style="padding:18px;color:var(--coral);font-size:13px">Failed to load reports: ${esc(e.message)}</div>`;
+  }
+}
+
 function svHistoryRows(activityArr) {
   if (!activityArr || !activityArr.length) {
     return `<div style="padding:18px;text-align:center;color:var(--text2);font-size:13px">No actions yet — approvals, declines, and bans you make will show up here.</div>`;
   }
-  const iconMap = { ban_user: 'fa-ban', approve_summary: 'fa-circle-check', decline_summary: 'fa-circle-xmark' };
-  const labelMap = { ban_user: 'Banned a user', approve_summary: 'Approved a summary', decline_summary: 'Declined a summary' };
+  const iconMap = { ban_user: 'fa-ban', unban_user: 'fa-check', approve_summary: 'fa-circle-check', decline_summary: 'fa-circle-xmark' };
+  const labelMap = { ban_user: 'Banned a user', unban_user: 'Unbanned a user', approve_summary: 'Approved a summary', decline_summary: 'Declined a summary' };
   return activityArr.map(a => {
     const ico = iconMap[a.action] || 'fa-circle';
     const label = labelMap[a.action] || a.action;

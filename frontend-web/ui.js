@@ -157,8 +157,8 @@ function toggleUserMenu(e){
       </div>
     </div>
     <div class="um-section">
-      <div class="um-item" onclick="navTo('profile');closeUserMenu()"><i class="fas fa-circle-user" aria-hidden="true"></i> My Profile</div>
-      <div class="um-item" onclick="navTo('notifications');closeUserMenu()"><i class="fas fa-bell" aria-hidden="true"></i> Notifications ${STATE.unreadCount > 0 ? `<span style="background:var(--coral);color:#fff;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:900;margin-left:4px">${STATE.unreadCount}</span>` : ''}</div>
+      ${!isModerator ? `<div class="um-item" onclick="navTo('profile');closeUserMenu()"><i class="fas fa-circle-user" aria-hidden="true"></i> My Profile</div>
+      <div class="um-item" onclick="navTo('notifications');closeUserMenu()"><i class="fas fa-bell" aria-hidden="true"></i> Notifications ${STATE.unreadCount > 0 ? `<span style="background:var(--coral);color:#fff;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:900;margin-left:4px">${STATE.unreadCount}</span>` : ''}</div>` : ''}
       ${isAdmin ? `<div class="um-item" onclick="navTo('admin');closeUserMenu()"><i class="fas fa-shield-halved" aria-hidden="true"></i> Admin Panel</div>` : ''}
       ${u.role === 'supervisor' ? `<div class="um-item" onclick="navTo('supervisor');closeUserMenu()"><i class="fas fa-eye" aria-hidden="true"></i> Supervision Queue</div>` : ''}
       ${!isModerator ? `<div class="um-item" onclick="openUploadModal();closeUserMenu()"><i class="fas fa-upload" aria-hidden="true"></i> Upload Summary</div>
@@ -167,7 +167,7 @@ function toggleUserMenu(e){
       <div class="um-item" onclick="navTo('wallet');closeUserMenu()"><i class="fas fa-wallet" aria-hidden="true"></i> Wallet</div>` : ''}` : ''}
     </div>
     <div class="um-section">
-      ${!isAdmin ? `<div class="um-item" onclick="navTo('settings');closeUserMenu()"><i class="fas fa-gear" aria-hidden="true"></i> Settings</div>
+      ${!isModerator ? `<div class="um-item" onclick="navTo('settings');closeUserMenu()"><i class="fas fa-gear" aria-hidden="true"></i> Settings</div>
       <div class="um-item" onclick="openChangePassword();closeUserMenu()"><i class="fas fa-lock" aria-hidden="true"></i> Change Password</div>` : ''}
       <div class="um-item danger" onclick="signOut();closeUserMenu()"><i class="fas fa-right-from-bracket" aria-hidden="true"></i> Sign Out</div>
     </div>`;
@@ -212,7 +212,7 @@ function updateNavForUser(){
     const smBtn = document.getElementById('searchModeBtn');
     if (smBtn) smBtn.style.display = 'none';
     // Hide entire "You" section
-    const youHideIds = ['si-sec-you','si-profile','si-upload','si-saved','si-following','si-notif','si-earnings','si-wallet','si-div-you'];
+    const youHideIds = ['si-sec-you','si-profile','si-upload','si-saved','si-following','si-notif','si-earnings','si-wallet','si-div-you','si-settings'];
     youHideIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
     // Hide "All Subjects" from Discover (and its section label)
     const discoverHideIds = ['si-sec-discover','si-subjects','si-div-discover'];
@@ -242,7 +242,7 @@ function updateNavForUser(){
   // Hide guest banner
   document.getElementById('guestBanner')?.classList.add('hidden');
   // Restore all sections hidden for guests
-  const restoreIds = ['si-sec-feeds','si-curr','si-sci','si-sec-you','si-profile','si-saved','si-following','si-notif','si-div-you','si-sec-discover','si-subjects','si-div-discover','bn-notif','bn-profile'];
+  const restoreIds = ['si-sec-feeds','si-curr','si-sci','si-sec-you','si-profile','si-saved','si-following','si-notif','si-div-you','si-sec-discover','si-subjects','si-div-discover','bn-notif','bn-profile','si-settings'];
   restoreIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = ''; });
   // Wallet & Earnings only visible if user has at least one approved upload
   const hasUploads = (u.uploads || 0) > 0;
@@ -267,10 +267,15 @@ function updateNavForUser(){
   }
   if (document.getElementById('si-supervisor')) document.getElementById('si-supervisor').style.display = u.role==='supervisor' ? '' : 'none';
   document.getElementById('bn-admin')?.style && (document.getElementById('bn-admin').style.display = isAdmin ? '' : 'none');
-  // Show/hide upload for non-admins and non-supervisors (supervisors don't
-  // upload content — reviewing and banning is their entire scope)
-  document.getElementById('si-upload')?.style && (document.getElementById('si-upload').style.display = isModerator ? 'none' : '');
-  document.getElementById('bn-upload')?.style && (document.getElementById('bn-upload').style.display = isModerator ? 'none' : '');
+  // Admin/supervisor accounts don't upload, save, follow, get notified, or
+  // have a public profile to manage — none of that applies to a moderation
+  // account, so hide it from the sidebar the same way it's hidden from the
+  // account menu. Only general site navigation (Home/Search/Trending/Feeds/
+  // Subjects) plus their one panel link stays visible.
+  ['si-upload','si-profile','si-saved','si-following','si-notif','si-settings','bn-upload','bn-notif','bn-profile'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isModerator ? 'none' : '';
+  });
 }
 function setSidebarActive(route){
   document.querySelectorAll('.si-item').forEach(el => el.classList.remove('active','active-a'));
@@ -297,7 +302,7 @@ function openSignIn(){
       <div id="si-err" style="color:var(--coral);font-size:12px;margin-top:8px;display:none" role="alert"></div>
       <button class="btn btn-primary btn-block btn-lg" style="margin-top:18px" onclick="submitSignIn()"><i class="fas fa-right-to-bracket" aria-hidden="true"></i> Sign In</button>
       <div style="text-align:center;margin-top:14px;font-size:12px;color:var(--text2)">No account? <span style="color:var(--amber);cursor:pointer;font-weight:700" onclick="document.getElementById('siOverlay').remove();openSignUp()">Sign Up Free →</span></div>
-      <div class="info-box" style="margin-top:14px"><b>Demo accounts (password for all: <code>pass123</code>):</b><br>admin@mol5sat.org / admin123 · supervisor@mol5sat.org / super123 · ahmed@example.com / pass123 · mona@example.com / pass123</div>
+      <div class="info-box" style="margin-top:14px"><b>Demo accounts:</b><br>admin@mol5sat.org / admin123 · supervisor@mol5sat.org / super123 · ahmed@example.com / pass123 · mona@example.com / pass123</div>
     </div>
   </div>`;
   document.body.appendChild(ov);

@@ -90,8 +90,8 @@
   <div class="si-item" id="si-trending" onclick="navTo('trending')"><i class="fas fa-fire"></i><span class="si-lbl">Trending</span></div>
   <div class="si-div"></div>
   <div class="si-sec" id="si-sec-feeds">Feeds</div>
-  <div class="si-item" id="si-curr" onclick="navTo('home');setTimeout(()=>setTab('curriculum'),60)"><i class="fas fa-book-open"></i><span class="si-lbl">Curriculum Feed</span></div>
-  <div class="si-item" id="si-sci" onclick="navTo('home');setTimeout(()=>setTab('science'),60)"><i class="fas fa-flask"></i><span class="si-lbl">Science Feed</span><span class="si-dot"></span></div>
+  <div class="si-item" id="si-curr" onclick="STATE.activeTab='curriculum';navTo('home')"><i class="fas fa-book-open"></i><span class="si-lbl">Curriculum Feed</span></div>
+  <div class="si-item" id="si-sci" onclick="STATE.activeTab='science';navTo('home')"><i class="fas fa-flask"></i><span class="si-lbl">Science Feed</span><span class="si-dot"></span></div>
   <div class="si-div" id="si-div-you"></div>
   <div class="si-sec" id="si-sec-you">You</div>
   <div class="si-item" id="si-profile" onclick="navTo('profile')"><i class="fas fa-user"></i><span class="si-lbl">Profile</span></div>
@@ -108,7 +108,7 @@
   <div class="si-sec" id="si-admin-sec" style="display:none">Admin</div>
   <div class="si-item" id="si-admin" onclick="navTo('admin')" style="display:none"><i class="fas fa-shield-halved"></i><span class="si-lbl">Admin Panel</span></div>
   <div class="si-item" id="si-supervisor" onclick="navTo('supervisor')" style="display:none"><i class="fas fa-eye"></i><span class="si-lbl">Supervision Queue</span></div>
-  <div class="si-item" onclick="navTo('settings')"><i class="fas fa-gear"></i><span class="si-lbl">Settings</span></div>
+  <div class="si-item" id="si-settings" onclick="navTo('settings')"><i class="fas fa-gear"></i><span class="si-lbl">Settings</span></div>
   <div class="si-item" style="color:var(--coral)" onclick="openSiteReportModal()"><i class="fas fa-triangle-exclamation"></i><span class="si-lbl">Report Site Issue</span></div>
 </aside>
 

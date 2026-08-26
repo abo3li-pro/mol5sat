@@ -95,7 +95,7 @@ router.get('/feed', optionalAuth, (req, res) => {
     if (!u) {
       const orderMap = { date:'s.created_at DESC', 'date-asc':'s.created_at ASC', likes:'s.likes DESC', views:'s.views DESC', 'pages-desc':'s.pages DESC', 'pages-asc':'s.pages ASC', recommended:'s.is_promoted DESC, s.likes DESC, s.views DESC' };
       const order = orderMap[req.query.sort] || orderMap.recommended;
-      const rows = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' ORDER BY ${order} LIMIT 60`).all();
+      const rows = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' AND s.deleted_at IS NULL ORDER BY ${order} LIMIT 60`).all();
       return res.json(rows.map(s => enrichSummary(s, null)).filter(s => s && !s._enrichError));
     }
 
@@ -110,13 +110,13 @@ router.get('/feed', optionalAuth, (req, res) => {
     // user, and features like grade-proximity ordering or the advanced
     // "higher grades" filter have almost nothing to actually sort/filter.
     if (req.query.mode === 'curriculum') {
-      const primary = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' AND s.country=? AND s.grade=? ORDER BY ${order}`).all(u.country, u.grade);
-      const promoted = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience!='colleagues' AND s.is_promoted=1 AND s.country!=? ORDER BY ${order} LIMIT 10`).all(u.country);
+      const primary = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' AND s.deleted_at IS NULL AND s.country=? AND s.grade=? ORDER BY ${order}`).all(u.country, u.grade);
+      const promoted = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience!='colleagues' AND s.deleted_at IS NULL AND s.is_promoted=1 AND s.country!=? ORDER BY ${order} LIMIT 10`).all(u.country);
       const seen = new Set(primary.map(s => s.id));
       return res.json([...primary, ...promoted.filter(s => !seen.has(s.id))].map(s => enrichSummary(s, u.id)).filter(s => s && !s._enrichError));
     }
 
-    const rows = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' ORDER BY ${order} LIMIT 300`).all();
+    const rows = db.prepare(`SELECT s.* FROM summaries s WHERE s.approved=1 AND s.audience='students' AND s.deleted_at IS NULL ORDER BY ${order} LIMIT 300`).all();
     res.json(rows.map(s => enrichSummary(s, u.id)).filter(s => s && !s._enrichError));
   } catch (err) {
     console.error('[GET /summaries/feed] error:', err.message, err.stack);
@@ -126,20 +126,35 @@ router.get('/feed', optionalAuth, (req, res) => {
 
 // GET /api/summaries/pending
 router.get('/pending', requireSupervisor, (req, res) => {
-  const rows = db.prepare(`SELECT s.*, u.name as author_name FROM summaries s LEFT JOIN users u ON u.id=s.author_id WHERE s.approved=0 ORDER BY s.created_at ASC`).all();
+  const rows = db.prepare(`SELECT s.*, u.name as author_name FROM summaries s LEFT JOIN users u ON u.id=s.author_id WHERE s.approved=0 AND s.deleted_at IS NULL ORDER BY s.created_at ASC`).all();
+  rows.forEach(s => { s.author = s.author_name; });
+  res.json(rows.map(s => enrichSummary(s, req.user?.id)));
+});
+
+// GET /api/summaries/deleted — recently-removed summaries, restorable by
+// whoever removed them. Must be registered here (before the generic
+// GET /:id below) or a request for "/deleted" would be swallowed by that
+// route trying to look up a summary literally named "deleted".
+router.get('/deleted', requireSupervisor, (req, res) => {
+  const rows = db.prepare(`SELECT s.*, u.name as author_name, d.name as deleted_by_name
+    FROM summaries s
+    LEFT JOIN users u ON u.id = s.author_id
+    LEFT JOIN users d ON d.id = s.deleted_by
+    WHERE s.deleted_at IS NOT NULL
+    ORDER BY s.deleted_at DESC LIMIT 100`).all();
   rows.forEach(s => { s.author = s.author_name; });
   res.json(rows.map(s => enrichSummary(s, req.user?.id)));
 });
 
 // GET /api/summaries/user/saves
 router.get('/user/saves', requireAuth, (req, res) => {
-  const rows = db.prepare(`SELECT s.* FROM summaries s JOIN saves sv ON sv.summary_id=s.id WHERE sv.user_id=? AND s.approved=1 ORDER BY sv.created_at DESC`).all(req.user.id);
+  const rows = db.prepare(`SELECT s.* FROM summaries s JOIN saves sv ON sv.summary_id=s.id WHERE sv.user_id=? AND s.approved=1 AND s.deleted_at IS NULL ORDER BY sv.created_at DESC`).all(req.user.id);
   res.json(rows.map(s => enrichSummary(s, req.user.id)));
 });
 
 // GET /api/summaries/user/likes
 router.get('/user/likes', requireAuth, (req, res) => {
-  const rows = db.prepare(`SELECT s.* FROM summaries s JOIN likes l ON l.summary_id=s.id WHERE l.user_id=? AND s.approved=1 ORDER BY l.created_at DESC`).all(req.user.id);
+  const rows = db.prepare(`SELECT s.* FROM summaries s JOIN likes l ON l.summary_id=s.id WHERE l.user_id=? AND s.approved=1 AND s.deleted_at IS NULL ORDER BY l.created_at DESC`).all(req.user.id);
   res.json(rows.map(s => enrichSummary(s, req.user.id)));
 });
 
@@ -147,7 +162,7 @@ router.get('/user/likes', requireAuth, (req, res) => {
 router.get('/', optionalAuth, (req, res) => {
   try {
     const { subject, country, grade, lang, audience, sort, q, mode } = req.query;
-    let where = ['s.approved=1']; let params = [];
+    let where = ['s.approved=1', 's.deleted_at IS NULL']; let params = [];
     if (subject) { where.push('s.subject=?'); params.push(subject); }
     if (country) { where.push('s.country=?'); params.push(country); }
     if (grade) { where.push('s.grade=?'); params.push(grade); }
@@ -205,7 +220,7 @@ router.post('/', requireAuth, upload.single('file'), (req, res) => {
         const wmUser = db.prepare('SELECT * FROM users WHERE LOWER(username)=?').get(foundUsername.toLowerCase());
         if (wmUser) {
           // Find all their approved summaries that match
-          const theirSummaries = db.prepare('SELECT * FROM summaries WHERE author_id=? AND approved=1').all(wmUser.id);
+          const theirSummaries = db.prepare('SELECT * FROM summaries WHERE author_id=? AND approved=1 AND deleted_at IS NULL').all(wmUser.id);
           let bestScore = 0, bestMatch = null;
           for (const s of theirSummaries) {
             const score = computeSimilarity(rawContent, s.content);
@@ -231,7 +246,7 @@ router.post('/', requireAuth, upload.single('file'), (req, res) => {
   // ── Text-similarity check against all approved summaries ─
   if (rawContent && rawContent.trim().length > 100) {
     // Only check approved summaries with content (not just file-only)
-    const approved = db.prepare('SELECT * FROM summaries WHERE approved=1 AND content!=? AND length(content)>100').all('');
+    const approved = db.prepare('SELECT * FROM summaries WHERE approved=1 AND deleted_at IS NULL AND content!=? AND length(content)>100').all('');
     let topScore = 0, topMatch = null;
     for (const s of approved) {
       const score = computeSimilarity(rawContent, s.content);
@@ -276,6 +291,8 @@ router.post('/', requireAuth, upload.single('file'), (req, res) => {
 router.get('/:id', optionalAuth, (req, res) => {
   const s = db.prepare('SELECT * FROM summaries WHERE id=?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Summary not found' });
+  const isModerator = req.user?.role === 'admin' || req.user?.role === 'supervisor';
+  if (s.deleted_at && !isModerator) return res.status(404).json({ error: 'Summary not found' });
   if (!s.approved && req.user?.role !== 'admin' && req.user?.id !== s.author_id) return res.status(403).json({ error: 'Not approved yet' });
   const enriched = enrichSummary(s);
   if (s.membership_required && req.user) {
@@ -389,13 +406,32 @@ router.patch('/:id/decline', requireSupervisor, async (req, res) => {
   });
 });
 
-// DELETE /api/summaries/:id
+// DELETE /api/summaries/:id — soft delete (recoverable). Content stops
+// appearing anywhere immediately, but nothing is actually destroyed until
+// an admin/supervisor deliberately purges it, so a mistaken removal is
+// never a dead end.
 router.delete('/:id', requireAuth, (req, res) => {
   const s = db.prepare('SELECT * FROM summaries WHERE id=?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
   if (req.user.role !== 'admin' && req.user.role !== 'supervisor' && req.user.id !== s.author_id) return res.status(403).json({ error: 'Not authorized' });
-  db.prepare('DELETE FROM summaries WHERE id=?').run(req.params.id);
+  db.prepare('UPDATE summaries SET deleted_at=?, deleted_by=? WHERE id=?').run(Math.floor(Date.now()/1000), req.user.id, req.params.id);
   db.prepare('UPDATE users SET uploads=MAX(0,uploads-1) WHERE id=?').run(s.author_id);
+  log({ userId: req.user.id, userName: req.user.name, action: 'remove_summary', entityType: 'summary',
+    entityId: req.params.id, details: `Removed "${s.title}"`, ip: req.ip||'' });
+  res.json({ success: true });
+});
+
+// PATCH /api/summaries/:id/restore — undo a removal. Admin/supervisor only:
+// same reasoning as approve/decline — this is a moderation action, not
+// something the original author can trigger themselves.
+router.patch('/:id/restore', requireSupervisor, (req, res) => {
+  const s = db.prepare('SELECT * FROM summaries WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  if (!s.deleted_at) return res.status(400).json({ error: 'This summary was not removed.' });
+  db.prepare('UPDATE summaries SET deleted_at=NULL, deleted_by=? WHERE id=?').run('', req.params.id);
+  db.prepare('UPDATE users SET uploads=uploads+1 WHERE id=?').run(s.author_id);
+  log({ userId: req.user.id, userName: req.user.name, action: 'restore_summary', entityType: 'summary',
+    entityId: req.params.id, details: `Restored "${s.title}"`, ip: req.ip||'' });
   res.json({ success: true });
 });
 

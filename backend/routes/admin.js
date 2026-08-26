@@ -25,7 +25,13 @@ router.get('/users', requireSupervisor, (req, res) => {
     where += ' AND (name LIKE ? OR email LIKE ? OR username LIKE ?)';
     params.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
-  if (status) { where += ' AND status=?'; params.push(status); }
+  if (status) {
+    where += ' AND status=?'; params.push(status);
+    // 'u9' is a pre-seeded sample banned account (exists so the Banned Users
+    // panel isn't empty on a fresh install) — not a real ban, so it shouldn't
+    // show up when specifically looking at real banned users.
+    if (status === 'banned') where += " AND id != 'u9'";
+  }
   const users = db.prepare(`SELECT id,name,username,email,role,user_type,country,status,followers,uploads,joined,created_at,ban_reason,ban_expires_at,ban_type,profile_photo FROM users WHERE ${where} ORDER BY created_at DESC`).all(...params);
   res.json(users);
 });
@@ -106,12 +112,14 @@ router.use(requireAdmin);
 router.get('/stats', (req, res) => {
   expirePromotions(); // clean up expired promotions each time the dashboard loads
   const totalUsers = db.prepare('SELECT COUNT(*) as c FROM users WHERE role != ?').get('admin').c;
-  const totalSummaries = db.prepare('SELECT COUNT(*) as c FROM summaries').get().c;
-  const approved = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE approved=1').get().c;
-  const pending = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE approved=0').get().c;
-  const banned = db.prepare('SELECT COUNT(*) as c FROM users WHERE status=?').get('banned').c;
-  const totalViews = db.prepare('SELECT SUM(views) as v FROM summaries').get().v || 0;
-  const totalLikes = db.prepare('SELECT SUM(likes) as l FROM summaries').get().l || 0;
+  const totalSummaries = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE deleted_at IS NULL').get().c;
+  const approved = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE approved=1 AND deleted_at IS NULL').get().c;
+  const pending = db.prepare('SELECT COUNT(*) as c FROM summaries WHERE approved=0 AND deleted_at IS NULL').get().c;
+  // Excludes 'u9', a pre-seeded sample banned account — see the /users route
+  // above for why: it's decorative sample data, not a real moderation action.
+  const banned = db.prepare("SELECT COUNT(*) as c FROM users WHERE status=? AND id != 'u9'").get('banned').c;
+  const totalViews = db.prepare('SELECT SUM(views) as v FROM summaries WHERE deleted_at IS NULL').get().v || 0;
+  const totalLikes = db.prepare('SELECT SUM(likes) as l FROM summaries WHERE deleted_at IS NULL').get().l || 0;
   const activeBans = db.prepare(`SELECT COUNT(*) as c FROM ip_bans WHERE permanent=1 OR expires_at > ?`).get(Math.floor(Date.now()/1000)).c;
   const plagiarismPending = db.prepare("SELECT COUNT(*) as c FROM plagiarism_cases WHERE verdict='pending'").get().c;
   const plagiarismThieves = db.prepare("SELECT COUNT(*) as c FROM plagiarism_cases WHERE verdict='thief'").get().c;
@@ -190,13 +198,13 @@ router.patch('/ip-bans/:id/extend', (req, res) => {
 // GET /api/admin/summaries — all summaries (for content management)
 router.get('/summaries', (req, res) => {
   const { q, approved } = req.query;
-  let where = [];
+  let where = ['s.deleted_at IS NULL'];
   let params = [];
 
   if (approved !== undefined) { where.push('s.approved=?'); params.push(parseInt(approved)); }
   if (q) { where.push('(s.title LIKE ? OR s.subject LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
 
-  const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const clause = 'WHERE ' + where.join(' AND ');
   const rows = db.prepare(`SELECT s.*, u.name as author_name FROM summaries s 
     LEFT JOIN users u ON u.id = s.author_id ${clause} ORDER BY s.created_at DESC LIMIT 200`).all(...params);
 

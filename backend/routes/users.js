@@ -64,7 +64,7 @@ router.get('/:id', optionalAuth, (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   const safe = safeUser(user);
-  safe.summaries = db.prepare('SELECT * FROM summaries WHERE author_id=? AND approved=1 ORDER BY created_at DESC').all(req.params.id);
+  safe.summaries = db.prepare('SELECT * FROM summaries WHERE author_id=? AND approved=1 AND deleted_at IS NULL ORDER BY created_at DESC').all(req.params.id);
   safe.summaries = safe.summaries.map(s => enrichSummary(s, req.user?.id)).filter(s => s && !s._enrichError);
   if (req.user) {
     safe.isFollowing = !!db.prepare('SELECT 1 FROM follows WHERE follower_id=? AND following_id=?').get(req.user.id, req.params.id);

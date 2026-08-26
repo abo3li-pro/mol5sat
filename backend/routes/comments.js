@@ -77,7 +77,7 @@ router.post('/:summaryId', requireAuth, (req, res) => {
   }
 
   // Verify summary exists and is approved
-  const summary = db.prepare('SELECT id FROM summaries WHERE id=? AND approved=1').get(summaryId);
+  const summary = db.prepare('SELECT id FROM summaries WHERE id=? AND approved=1 AND deleted_at IS NULL').get(summaryId);
   if (!summary) return res.status(404).json({ error: 'Summary not found' });
 
   // If replying, verify parent exists on this summary

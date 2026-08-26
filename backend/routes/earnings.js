@@ -6,7 +6,7 @@ const { getSetting, calcEarnings } = require('../utils/earnings');
 
 // GET /api/earnings/me — full earnings dashboard for logged-in creator
 router.get('/me', requireAuth, (req, res) => {
-  const summaries = db.prepare('SELECT * FROM summaries WHERE author_id=? AND approved=1').all(req.user.id);
+  const summaries = db.prepare('SELECT * FROM summaries WHERE author_id=? AND approved=1 AND deleted_at IS NULL').all(req.user.id);
 
   let totalEgp = 0;
   let pendingEgp = 0;
@@ -76,7 +76,7 @@ router.post('/promotions', requireAuth, (req, res) => {
   const { summary_id, budget_egp, duration_days, notes } = req.body;
   if (!summary_id || !budget_egp || !duration_days) return res.status(400).json({ error: 'summary_id, budget_egp and duration_days required' });
 
-  const s = db.prepare('SELECT * FROM summaries WHERE id=? AND author_id=? AND approved=1').get(summary_id, req.user.id);
+  const s = db.prepare('SELECT * FROM summaries WHERE id=? AND author_id=? AND approved=1 AND deleted_at IS NULL').get(summary_id, req.user.id);
   if (!s) return res.status(404).json({ error: 'Summary not found, not yours, or not approved' });
 
   // Only one active/pending request per summary

@@ -145,6 +145,17 @@
   // ── navTo helper (alias) ───────────────────────────────
   window.navTo = function (r, d) { navigate(r, d || {}); };
 
+  // Curriculum needs a signed-in grade/country to filter by — a guest
+  // clicking this sidebar link gets the same blur-backdrop sign-in prompt
+  // as liking/following/saving, instead of landing on Home just to be
+  // walled off there. One shared helper so every entry point (sidebar
+  // link here, in-page tab toggle via setTab in pages.js) agrees.
+  window.navToCurriculum = function () {
+    if (!STATE.loggedIn) { showGuestActionBanner('curriculum'); return; }
+    STATE.activeTab = 'curriculum';
+    navTo('home');
+  };
+
   // ── INIT: set STATE.route from the current URL, then boot
   document.addEventListener('DOMContentLoaded', async () => {
     console.log('%c[Mol5sat] frontend build: 1.4.0-comments-guestux-pagination-2026-08-11', 'color:#FFB800;font-weight:bold');

@@ -903,37 +903,46 @@ function toast(msg, type = 'success', icon = 'fa-circle-check') {
 }
 
 // ── GUEST ACTION BANNER ────────────────────────────────────
-// Shown instead of jumping straight to the sign-in modal whenever a guest
-// tries to like/save/follow/comment -- short, explains what they'd get,
-// and offers both Sign In and Sign Up right there.
+// A blur-backdrop modal (same .overlay/.modal pattern as the ban/decline
+// modals) shown instead of jumping straight to the sign-in modal whenever a
+// guest tries to like/save/follow/comment/view their Curriculum Feed --
+// explains what they'd get, and offers Sign In, Sign Up, or an explicit way
+// to dismiss and keep browsing as a guest.
 const _GUEST_ACTION_COPY = {
-  like:    { icon: 'fa-heart',     title: 'Sign in to like this',
-             body: 'Liking helps creators know their work is landing — takes just a few seconds.' },
-  save:    { icon: 'fa-bookmark',  title: 'Sign in to save this',
-             body: 'Save summaries to build your own reading list and find them again anytime.' },
-  follow:  { icon: 'fa-user-plus', title: 'Sign in to follow',
-             body: 'Get notified the moment they publish something new.' },
-  comment: { icon: 'fa-comments',  title: 'Sign in to join the conversation',
-             body: 'Share your thoughts and ask questions — creators often reply.' },
+  like:       { icon: 'fa-heart',          title: 'Sign in to like this',
+                body: 'Liking helps creators know their work is landing — takes just a few seconds.' },
+  save:       { icon: 'fa-bookmark',       title: 'Sign in to save this',
+                body: 'Save summaries to build your own reading list and find them again anytime.' },
+  follow:     { icon: 'fa-user-plus',      title: 'Sign in to follow',
+                body: 'Get notified the moment they publish something new.' },
+  comment:    { icon: 'fa-comments',       title: 'Sign in to join the conversation',
+                body: 'Share your thoughts and ask questions — creators often reply.' },
+  curriculum: { icon: 'fa-graduation-cap', title: 'Your Curriculum Feed is waiting',
+                body: 'Sign in and we\'ll match summaries to your exact grade, school type, and country — no digging through everything else on the platform.' },
 };
 function showGuestActionBanner(action, subject) {
-  document.querySelectorAll('.guest-action-banner').forEach(b => b.remove());
+  document.getElementById('guestGateOverlay')?.remove();
   const c = _GUEST_ACTION_COPY[action] || _GUEST_ACTION_COPY.like;
   const title = (subject && action === 'follow')
     ? `Sign in to follow ${esc(subject)}`
     : (subject ? `${c.title} ${esc(subject)}` : (action === 'follow' ? 'Sign in to follow this creator' : c.title));
-  const el = document.createElement('div');
-  el.className = 'guest-action-banner';
-  el.innerHTML = `
-    <button class="guest-action-banner__close" aria-label="Dismiss" onclick="this.closest('.guest-action-banner').remove()"><i class="fas fa-xmark"></i></button>
-    <div class="guest-action-banner__head"><i class="fas ${c.icon}"></i> ${title}</div>
-    <div class="guest-action-banner__body">${c.body}</div>
-    <div class="guest-action-banner__acts">
-      <button class="btn btn-primary btn-sm" onclick="this.closest('.guest-action-banner').remove();openSignIn()"><i class="fas fa-right-to-bracket"></i> Sign In</button>
-      <button class="btn btn-ghost btn-sm" onclick="this.closest('.guest-action-banner').remove();openSignUp()"><i class="fas fa-user-plus"></i> Sign Up</button>
-    </div>`;
-  document.body.appendChild(el);
-  setTimeout(() => { if (el.parentNode) el.remove(); }, 9000);
+  const ov = document.createElement('div');
+  ov.className = 'overlay'; ov.id = 'guestGateOverlay';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="modal modal--narrow" style="position:relative"><div class="modal-drag"></div>
+    <button class="modal-close" style="position:absolute;top:14px;right:14px;z-index:2" aria-label="Continue browsing as guest" onclick="document.getElementById('guestGateOverlay').remove()"><i class="fas fa-xmark"></i></button>
+    <div class="modal-body" style="text-align:center;padding-top:38px;padding-bottom:28px">
+      <div style="width:56px;height:56px;border-radius:50%;background:var(--amber-dim);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 16px"><i class="fas ${c.icon}"></i></div>
+      <div style="font-family:var(--fd);font-size:18px;font-weight:800;margin-bottom:8px">${title}</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:22px;max-width:320px;margin-left:auto;margin-right:auto">${c.body}</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary btn-lg" style="flex:1" onclick="document.getElementById('guestGateOverlay').remove();openSignIn()"><i class="fas fa-right-to-bracket"></i> Sign In</button>
+        <button class="btn btn-ghost-gold btn-lg" style="flex:1" onclick="document.getElementById('guestGateOverlay').remove();openSignUp()"><i class="fas fa-user-plus"></i> Sign Up</button>
+      </div>
+      <div style="margin-top:16px;font-size:12px;color:var(--text3);cursor:pointer;text-decoration:underline" onclick="document.getElementById('guestGateOverlay').remove()">Continue browsing as guest</div>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
 }
 
 // ── CARD HTML ─────────────────────────────────────────────

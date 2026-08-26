@@ -267,12 +267,20 @@ function updateNavForUser(){
   }
   if (document.getElementById('si-supervisor')) document.getElementById('si-supervisor').style.display = u.role==='supervisor' ? '' : 'none';
   document.getElementById('bn-admin')?.style && (document.getElementById('bn-admin').style.display = isAdmin ? '' : 'none');
-  // Admin/supervisor accounts don't upload, save, follow, get notified, or
-  // have a public profile to manage — none of that applies to a moderation
-  // account, so hide it from the sidebar the same way it's hidden from the
-  // account menu. Only general site navigation (Home/Search/Trending/Feeds/
-  // Subjects) plus their one panel link stays visible.
-  ['si-upload','si-profile','si-saved','si-following','si-notif','si-settings','bn-upload','bn-notif','bn-profile'].forEach(id => {
+  document.getElementById('bn-supervisor')?.style && (document.getElementById('bn-supervisor').style.display = u.role==='supervisor' ? '' : 'none');
+  // Admin/supervisor accounts are here to moderate, not to browse — they
+  // don't upload, save, follow, get notified, manage a public profile, OR
+  // look at feeds/search/trending/subjects. Every bit of that content
+  // navigation is hidden, leaving nothing but their one panel link (plus
+  // Report Site Issue, which is about the site itself, not its content).
+  [
+    'si-sec-nav','si-home','si-search','si-trending',
+    'si-sec-feeds','si-curr','si-sci',
+    'si-sec-you','si-div-you','si-profile','si-upload','si-saved','si-following','si-notif','si-earnings','si-wallet',
+    'si-sec-discover','si-div-discover','si-subjects',
+    'si-settings',
+    'bn-home','bn-search','bn-upload','bn-notif','bn-profile',
+  ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isModerator ? 'none' : '';
   });

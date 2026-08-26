@@ -35,6 +35,14 @@ async function render() {
     const dest = role === 'admin' ? 'admin' : role === 'supervisor' ? 'supervisor' : 'home';
     navigate(dest); return;
   }
+  // Admin/supervisor are here to moderate, not browse — matches the sidebar,
+  // which hides Home/Search/Trending/Curriculum/Science/Subjects for them.
+  // This catches direct URLs and back/forward navigation too.
+  const modRole = STATE.currentUser?.role;
+  const FEED_ROUTES = ['home', 'search', 'trending', 'subjects'];
+  if ((modRole === 'admin' || modRole === 'supervisor') && FEED_ROUTES.includes(route)) {
+    navigate(modRole === 'admin' ? 'admin' : 'supervisor'); return;
+  }
   // Guests must land on the welcome page first. 'home' is only reachable
   // for a guest after they explicitly tap "Browse as Guest" on landing
   // (which sets STATE.guestBrowsing = true). A guest hitting /home directly
@@ -280,7 +288,7 @@ async function renderHome(root) {
         const guestCards = [...allSummaries]
           .sort((a,b)=> (b.views||0)+(b.likes||0)*3 - ((a.views||0)+(a.likes||0)*3))
           .slice(0,40).map(s => cardHTML(s)).join('');
-        root.innerHTML = `<div class="page">
+        root.innerHTML = `<div class="page">${tabToggle}
           ${sortBarHTML(sort, 'setFeedSort', 'science')}
           ${filterBarHTML()}
           <div class="card-grid">${guestCards ||
@@ -327,6 +335,10 @@ async function renderHome(root) {
 }
 
 function setTab(t) {
+  if (t === 'curriculum' && !STATE.loggedIn) {
+    showGuestActionBanner('curriculum');
+    return;
+  }
   STATE.feedSort = ['recommended'];
   STATE.advancedTarget = null;
   // setSearchMode sets both STATE.activeTab and STATE.searchMode, and
@@ -1513,6 +1525,7 @@ async function renderAdmin(root) {
         <div class="admin-stat admin-stat--clickable ${STATE._adminDrill==='approved'?'admin-stat--active':''}" onclick="adminDrill('approved')"><div class="admin-stat__val" title="${stats.approved}">${stats.approved}</div><div class="admin-stat__lbl">Approved</div></div>
         <div class="admin-stat admin-stat--clickable ${STATE._adminDrill==='pending_review'?'admin-stat--active':''}" onclick="adminDrill('pending_review')"><div class="admin-stat__val r" title="${stats.pending}">${stats.pending}</div><div class="admin-stat__lbl">Pending Review</div></div>
         <div class="admin-stat admin-stat--clickable ${STATE._adminDrill==='banned'?'admin-stat--active':''}" onclick="adminDrill('banned')"><div class="admin-stat__val r" title="${stats.banned}">${stats.banned}</div><div class="admin-stat__lbl">Banned Users</div></div>
+        <div class="admin-stat admin-stat--clickable ${STATE._adminDrill==='deleted'?'admin-stat--active':''}" onclick="adminDrill('deleted')"><div class="admin-stat__val" style="color:var(--coral)"><i class="fas fa-trash-can" style="font-size:18px"></i></div><div class="admin-stat__lbl">Recently Deleted</div></div>
         <div class="admin-stat"><div class="admin-stat__val g" title="${stats.totalViews}">${fmt(stats.totalViews)}</div><div class="admin-stat__lbl">Total Views</div></div>
         <div class="admin-stat"><div class="admin-stat__val g" title="${stats.totalLikes}">${fmt(stats.totalLikes)}</div><div class="admin-stat__lbl">Total Likes</div></div>
         <div class="admin-stat admin-stat--clickable ${STATE._adminDrill==='thieves'?'admin-stat--active':''}" style="border-color:rgba(239,68,68,.3)" onclick="adminDrill('thieves')"><div class="admin-stat__val r" title="${stats.plagiarismThieves||0}">${stats.plagiarismThieves||0}</div><div class="admin-stat__lbl">⚠️ Thieves</div></div>
@@ -2137,6 +2150,11 @@ async function adminDrill(type) {
         </div>
       </div>`).join('') : `<div style="padding:20px;text-align:center;color:var(--text2)">No summaries</div>`;
 
+    } else if (type === 'deleted') {
+      const items = await api('GET', '/summaries/deleted') || [];
+      title = `<i class="fas fa-trash-can" style="color:var(--coral)"></i> Recently Deleted (${items.length})`;
+      rows = items.length ? items.map(s => deletedSummaryRow(s)).join('') : `<div style="padding:20px;text-align:center;color:var(--text2)">Nothing removed recently</div>`;
+
     } else if (type === 'pending_review') {
       const items = await api('GET', '/summaries/pending') || [];
       title = `<i class="fas fa-clock" style="color:var(--gold)"></i> Pending Review (${items.length})`;
@@ -2314,10 +2332,19 @@ async function resolveSiteReport(id, status) {
 // Re-renders whichever moderation dashboard is currently open. Admin and
 // Supervisor share this so a refresh after approve/decline/ban always lands
 // back on the right page instead of one of them hardcoding renderAdmin.
-function refreshModerationView() {
+async function refreshModerationView() {
   const root = document.getElementById('appRoot');
-  if (STATE.route === 'supervisor') renderSupervisor(root);
-  else renderAdmin(root);
+  if (STATE.route === 'supervisor') { await renderSupervisor(root); return; }
+  const reopenDrill = STATE._adminDrill;
+  await renderAdmin(root);
+  if (reopenDrill) {
+    // A fresh renderAdmin() rebuilds #adminDrillPanel empty even though
+    // STATE._adminDrill still says a card was open (so it shows highlighted
+    // but with nothing underneath) -- reset first so adminDrill's own
+    // "same card clicked twice = close it" check doesn't just close it again.
+    STATE._adminDrill = null;
+    adminDrill(reopenDrill);
+  }
 }
 
 async function aApprove(id) {
@@ -2377,12 +2404,40 @@ async function executeDecline(id) {
 }
 
 async function adminRemoveSummary(id) {
-  if (!confirm('Remove this summary permanently?')) return;
+  if (!confirm('Remove this summary? You can restore it later from Recently Deleted.')) return;
   try {
     await api('DELETE', `/summaries/${id}`);
-    toast('Removed', 'error', 'fa-trash');
-    goBack();
+    toast('Removed — restorable from Recently Deleted 🗑️', 'error', 'fa-trash');
+    logActivity('remove_summary', 'summary', id, '');
+    if (STATE.route === 'viewer') { goBack(); return; }
+    refreshModerationView();
   } catch (e) { toast(e.message, 'error', 'fa-times'); }
+}
+
+// Undo a removal — shared by admin's stat-card drill-down and supervisor's
+// persistent Recently Deleted panel.
+async function restoreSummary(id) {
+  try {
+    await api('PATCH', `/summaries/${id}/restore`);
+    toast('Restored ✅', 'success', 'fa-clock-rotate-left');
+    logActivity('restore_summary', 'summary', id, '');
+    if (document.getElementById('svDeletedList')) svLoadDeleted();
+    else if (STATE._adminDrill === 'deleted') adminDrill('deleted');
+    else refreshModerationView();
+  } catch (e) { toast(e.message, 'error', 'fa-times'); }
+}
+function deletedSummaryRow(s) {
+  const when = s.deleted_at ? new Date(s.deleted_at * 1000).toLocaleString() : '';
+  return `<div class="admin-row">
+    <div class="admin-row__main">
+      <div class="admin-row__title">${esc(s.title || '')}</div>
+      <div class="admin-row__sub">${esc(s.author||s.author_name||'?')} · ${esc(s.subject||'')} · Removed ${when}${s.deleted_by_name ? ' by ' + esc(s.deleted_by_name) : ''}</div>
+    </div>
+    <div class="admin-row__actions">
+      <button class="btn btn-surf btn-sm" onclick="navigate('viewer',{id:'${s.id}'})"><i class="fas fa-eye"></i></button>
+      <button class="btn btn-success btn-sm" onclick="restoreSummary('${s.id}')"><i class="fas fa-clock-rotate-left"></i> Restore</button>
+    </div>
+  </div>`;
 }
 
 
@@ -3028,6 +3083,14 @@ async function renderSupervisor(root) {
         <div id="svReportsList"><div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div></div>
       </div>
 
+      <!-- RECENTLY DELETED — undo a removal -->
+      <div class="admin-panel" style="margin-top:18px">
+        <div class="admin-panel-head">
+          <h3><i class="fas fa-trash-can" style="color:var(--coral)"></i> Recently Deleted</h3>
+        </div>
+        <div id="svDeletedList"><div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div></div>
+      </div>
+
       <!-- BAN / UNBAN USERS — the supervisor's other permitted action -->
       <div class="admin-panel" style="margin-top:18px">
         <div class="admin-panel-head">
@@ -3049,6 +3112,7 @@ async function renderSupervisor(root) {
     svLoadUsers();
     svLoadApproved();
     svLoadReports('pending');
+    svLoadDeleted();
 
   } catch(e) {
     root.innerHTML = `<div class="page"><div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error loading queue</div><div class="empty-sub">${esc(e.message)}</div></div></div>`;
@@ -3152,6 +3216,19 @@ function svFilterApproved(val) {
   document.querySelectorAll('#svApprovedList .admin-row').forEach(row => {
     row.style.display = row.textContent.toLowerCase().includes(v) ? '' : 'none';
   });
+}
+
+// ── Recently Deleted panel — reuses the exact same restoreSummary/
+// deletedSummaryRow admin's stat-card drill-down uses.
+async function svLoadDeleted() {
+  const el = document.getElementById('svDeletedList');
+  if (!el) return;
+  try {
+    const items = await api('GET', '/summaries/deleted') || [];
+    el.innerHTML = items.length ? items.map(s => deletedSummaryRow(s)).join('') : `<div style="padding:18px;text-align:center;color:var(--text2)">Nothing removed recently</div>`;
+  } catch (e) {
+    el.innerHTML = `<div style="padding:18px;text-align:center;color:var(--coral)">${esc(e.message)}</div>`;
+  }
 }
 
 // ── Reported Content panel — same endpoint and row shape as admin's Reports

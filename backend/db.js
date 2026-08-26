@@ -341,6 +341,11 @@ try { db.exec(`ALTER TABLE users ADD COLUMN ban_expires_at INTEGER DEFAULT 0`); 
 try { db.exec(`ALTER TABLE users ADD COLUMN ban_type TEXT DEFAULT ''`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN profile_photo TEXT DEFAULT ''`); } catch {}
 try { db.exec(`ALTER TABLE notifications ADD COLUMN actor_id TEXT DEFAULT ''`); } catch {}
+// Soft-delete support for summaries — "Remove" now hides content instead of
+// permanently destroying it, so an admin/supervisor can restore something
+// removed by mistake. NULL = live; a timestamp = removed at that time.
+try { db.exec(`ALTER TABLE summaries ADD COLUMN deleted_at INTEGER DEFAULT NULL`); } catch {}
+try { db.exec(`ALTER TABLE summaries ADD COLUMN deleted_by TEXT DEFAULT ''`); } catch {}
 
 // Site reports table — idempotent migration
 try {

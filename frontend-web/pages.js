@@ -1965,7 +1965,7 @@ function openBanModal(userId, userName) {
       </div>
       <div id="ban-err" style="color:var(--coral);font-size:12px;margin-top:8px;display:none"></div>
       <div style="display:flex;gap:10px;margin-top:18px">
-        <button class="btn btn-danger btn-lg" style="flex:1" onclick="executeBan('${userId}')">
+        <button class="btn btn-danger btn-lg" id="ban-confirm-btn" style="flex:1" onclick="executeBan('${userId}')">
           <i class="fas fa-ban"></i> Confirm Ban &amp; Email User
         </button>
         <button class="btn btn-surf" onclick="document.getElementById('banOverlay').remove()">Cancel</button>
@@ -2037,6 +2037,10 @@ async function executeBan(userId) {
     expired: false,
   });
 
+  const btn = document.getElementById('ban-confirm-btn');
+  const btnOrigHTML = btn?.innerHTML;
+  if (btn) { btn.disabled = true; btn.style.opacity = '.7'; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Banning…'; }
+
   try {
     await api('PATCH', `/admin/users/${userId}/ban`, {
       reason, message, ban_type: isPermanent ? 'permanent' : 'temporary',
@@ -2050,6 +2054,7 @@ async function executeBan(userId) {
     refreshModerationView();
   } catch (e) {
     showErr(e.message);
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = btnOrigHTML; }
   }
 }
 
@@ -2378,7 +2383,7 @@ function openDeclineModal(id, title) {
       </div>
       <div id="decline-err" style="color:var(--coral);font-size:12px;margin-top:8px;display:none"></div>
       <div style="display:flex;gap:10px;margin-top:18px">
-        <button class="btn btn-danger btn-lg" style="flex:1" onclick="executeDecline('${id}')">
+        <button class="btn btn-danger btn-lg" id="decline-confirm-btn" style="flex:1" onclick="executeDecline('${id}')">
           <i class="fas fa-paper-plane"></i> Decline &amp; Email Author
         </button>
         <button class="btn btn-surf" onclick="document.getElementById('declineOverlay').remove()">Cancel</button>
@@ -2392,6 +2397,9 @@ async function executeDecline(id) {
   const reason = document.getElementById('decline-reason-text')?.value?.trim();
   const errEl = document.getElementById('decline-err');
   if (!reason) { errEl.textContent = 'Please explain why, so the author knows what to fix.'; errEl.style.display = ''; return; }
+  const btn = document.getElementById('decline-confirm-btn');
+  const btnOrigHTML = btn?.innerHTML;
+  if (btn) { btn.disabled = true; btn.style.opacity = '.7'; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Declining…'; }
   try {
     await api('PATCH', `/summaries/${id}/decline`, { reason });
     document.getElementById('declineOverlay')?.remove();
@@ -2400,6 +2408,7 @@ async function executeDecline(id) {
     refreshModerationView();
   } catch (e) {
     errEl.textContent = e.message; errEl.style.display = '';
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = btnOrigHTML; }
   }
 }
 

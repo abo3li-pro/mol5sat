@@ -156,6 +156,18 @@
     navTo('home');
   };
 
+  // STATE.guestBrowsing is only set by tapping "Browse as Guest" on
+  // landing, and it's an in-memory flag that a browser reload silently
+  // resets to false -- so a guest who refreshed the page and then clicked
+  // Science Feed here got bounced straight back to landing by render()'s
+  // own guard, with no obvious reason why. Re-asserting it defensively on
+  // every click means this link works regardless of what happened before.
+  window.navToScience = function () {
+    STATE.guestBrowsing = true;
+    STATE.activeTab = 'science';
+    navTo('home');
+  };
+
   // ── INIT: set STATE.route from the current URL, then boot
   document.addEventListener('DOMContentLoaded', async () => {
     console.log('%c[Mol5sat] frontend build: 1.4.0-comments-guestux-pagination-2026-08-11', 'color:#FFB800;font-weight:bold');

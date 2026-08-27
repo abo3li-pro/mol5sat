@@ -47,15 +47,32 @@ async function api(method, endpoint, body, isFormData) {
     return _mockApiImpl(method, endpoint, body, isFormData);
   }
 
-  // Token expired → clear it and redirect to landing
+  // A 401 means "not authorized" — but WHY varies a lot, and the frontend
+  // used to collapse every single case into "Session expired", including
+  // a wrong password on login (where there was never a session to begin
+  // with). Read the server's actual reason and only treat this as a real
+  // session problem — clearing the token and bouncing to landing — when a
+  // token was actually sent and rejected. A request with no token at all
+  // (e.g. a login attempt) just surfaces the real error to the caller.
   if (res.status === 401) {
+    let errData;
+    try { errData = await res.json(); } catch {}
+    const serverMsg = errData?.error || errData?.message;
+
+    if (!token) {
+      // Never had a session — this is something like "wrong password" or
+      // "no account with that email", not an expiry. Don't touch auth
+      // state or navigate anywhere; let the caller show the real reason.
+      throw new Error(serverMsg || 'Incorrect email or password.');
+    }
+
     clearToken();
     if (typeof STATE !== 'undefined') {
       STATE.loggedIn = false;
       STATE.currentUser = null;
       if (typeof navigate === 'function') navigate('landing');
     }
-    throw new Error('Session expired — please sign in again.');
+    throw new Error(serverMsg || 'Session expired — please sign in again.');
   }
 
   if (res.status === 204) return {};

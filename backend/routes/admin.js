@@ -45,7 +45,7 @@ router.get('/my-activity', requireSupervisor, (req, res) => {
 });
 
 // PATCH /api/admin/users/:id/ban — ban with duration (days) + REQUIRED reason + email notification
-router.patch('/users/:id/ban', requireSupervisor, async (req, res) => {
+router.patch('/users/:id/ban', requireSupervisor, (req, res) => {
   const { reason, message, ban_type, ban_days, ip_ban, ip_address, permanent_ip } = req.body;
   // The frontend's ban modal sends a short `reason` code (e.g. "spam") AND a
   // full human-written `message` — the message is what should actually be
@@ -66,12 +66,6 @@ router.patch('/users/:id/ban', requireSupervisor, async (req, res) => {
 
   revokeAllUserTokens(req.params.id);
 
-  // Email notification — sent to email since user cannot access the site
-  const emailResult = await sendBanEmail({
-    to: user.email, name: user.name, reason: banReason,
-    duration: days, banType: ban_type || 'temporary',
-  }).catch(() => ({ sent: false }));
-
   if (ip_ban && ip_address) {
     const isPerm = permanent_ip ? 1 : 0;
     const expiresAt = isPerm ? 0 : Math.floor(Date.now() / 1000) + (days * 86400);
@@ -83,11 +77,19 @@ router.patch('/users/:id/ban', requireSupervisor, async (req, res) => {
   res.json({
     success: true,
     message: `${user.name} ${isPermanent ? 'permanently banned' : `suspended for ${days} day(s)`}`,
-    email_sent: emailResult.sent,
-    email_note: emailResult.sent ? null : 'SMTP not configured — set SMTP_HOST in .env to send ban emails automatically.',
   });
+
   log({ userId: req.user.id, userName: req.user.name, action: 'ban_user', entityType: 'user',
     entityId: req.params.id, details: `Banned ${user.name}: ${banReason} (${ban_type||'temporary'}, ${days}d)`, ip: req.ip||'' });
+
+  // Fire-and-forget — the ban and this response already happened above.
+  // Nothing in the frontend waits on or reads the result of this.
+  sendBanEmail({
+    to: user.email, name: user.name, reason: banReason,
+    duration: days, banType: ban_type || 'temporary',
+  }).then(r => {
+    if (!r.sent) console.warn(`[ban email] not sent to ${user.email}: ${r.reason || 'unknown'}`);
+  }).catch(err => console.error('[ban email] failed:', err.message));
 });
 
 // PATCH /api/admin/users/:id/unban — supervisor-accessible (see block comment

@@ -375,7 +375,7 @@ router.patch('/:id/approve', requireSupervisor, (req, res) => {
 });
 
 // PATCH /api/summaries/:id/decline — REQUIRES a reason, emailed to the author
-router.patch('/:id/decline', requireSupervisor, async (req, res) => {
+router.patch('/:id/decline', requireSupervisor, (req, res) => {
   const { reason } = req.body;
   if (!reason || !reason.trim()) return res.status(400).json({ error: 'A decline reason is required.' });
   const s = db.prepare('SELECT * FROM summaries WHERE id=?').get(req.params.id);
@@ -389,21 +389,20 @@ router.patch('/:id/decline', requireSupervisor, async (req, res) => {
   );
   db.prepare('DELETE FROM summaries WHERE id=?').run(req.params.id);
 
-  let emailResult = { sent: false };
-  if (author?.email) {
-    emailResult = await sendDeclineEmail({
-      to: author.email, name: author.name, reason: declineReason, title: s.title,
-    }).catch(() => ({ sent: false }));
-  }
-
   log({ userId: req.user.id, userName: req.user.name, action: 'decline_summary', entityType: 'summary',
     entityId: req.params.id, details: `Declined "${s.title}" by ${author?.name || s.author_id}: ${declineReason}`, ip: req.ip || '' });
 
-  res.json({
-    success: true,
-    email_sent: emailResult.sent,
-    email_note: emailResult.sent ? null : 'SMTP not configured — set SMTP_HOST in .env to send decline emails automatically.',
-  });
+  res.json({ success: true });
+
+  // Fire-and-forget, same reasoning as the ban route — don't make the
+  // decline wait on SMTP.
+  if (author?.email) {
+    sendDeclineEmail({
+      to: author.email, name: author.name, reason: declineReason, title: s.title,
+    }).then(r => {
+      if (!r.sent) console.warn(`[decline email] not sent to ${author.email}: ${r.reason || 'unknown'}`);
+    }).catch(err => console.error('[decline email] failed:', err.message));
+  }
 });
 
 // DELETE /api/summaries/:id — soft delete (recoverable). Content stops

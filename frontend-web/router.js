@@ -168,6 +168,17 @@
     navTo('home');
   };
 
+  // Generic guest-aware nav: the "You" section (Profile/Saved/Following/
+  // Notifications/Earnings/Wallet/Settings) stays fully visible to guests
+  // -- hiding it entirely meant guests never even knew these features
+  // existed. A signed-in user navigates as normal; a guest sees the same
+  // blur-backdrop banner used for curriculum/like/follow instead, with
+  // copy that sells what they'd get by signing up.
+  window.navToOrGate = function (route, action, data) {
+    if (!STATE.loggedIn) { showGuestActionBanner(action); return; }
+    navTo(route, data || {});
+  };
+
   // ── INIT: set STATE.route from the current URL, then boot
   document.addEventListener('DOMContentLoaded', async () => {
     console.log('%c[Mol5sat] frontend build: 1.4.0-comments-guestux-pagination-2026-08-11', 'color:#FFB800;font-weight:bold');

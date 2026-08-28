@@ -211,14 +211,15 @@ function updateNavForUser(){
     // Hide the search-mode toggle (curriculum vs science) — guests only see science
     const smBtn = document.getElementById('searchModeBtn');
     if (smBtn) smBtn.style.display = 'none';
-    // Hide entire "You" section
-    const youHideIds = ['si-sec-you','si-profile','si-upload','si-saved','si-following','si-notif','si-earnings','si-wallet','si-div-you','si-settings'];
-    youHideIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
-    // Hide "All Subjects" from Discover (and its section label)
-    const discoverHideIds = ['si-sec-discover','si-subjects','si-div-discover'];
-    discoverHideIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
-    // Hide auth-only bottom nav items
-    const bnHideIds = ['si-admin','si-admin-sec','bn-upload','bn-notif','bn-profile','bn-admin'];
+    // The "You" section (Profile/Upload/Saved/Following/Notifications/
+    // Earnings/Wallet/Settings) and the "Discover" section (All Subjects)
+    // both stay fully visible to guests now — hiding them meant a guest
+    // never even knew these features existed. "You" items are wired to
+    // navToOrGate, which shows a sign-in banner instead of navigating for
+    // anyone not logged in; Discover/Subjects needs no gating at all since
+    // browsing subjects and searching by one works fine without an account.
+    // Only genuinely role-restricted items (Admin Panel) stay hidden.
+    const bnHideIds = ['si-admin', 'si-admin-sec', 'bn-admin'];
     bnHideIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
     return;
   }
@@ -562,7 +563,7 @@ async function submitSignUp(){
 var US = window.US = { step:1, audience:'students', isPaid:false, selectedCompanies:[], memberRequired:false, companies:[] };
 
 async function openUploadModal(){
-  if (!STATE.loggedIn) { openSignIn(); return; }
+  if (!STATE.loggedIn) { showGuestActionBanner('upload'); return; }
   try { US.companies = await api('GET', '/companies') || []; } catch { US.companies = []; }
   US = { step:1, audience:'students', isPaid:false, selectedCompanies:[], memberRequired:false, bannerDataUrl:null, title:'', subject:'', lang:'ar', school:'', grade:'', spec:'', content:'', translatedFrom:'', fileName:'', companies:[] };
   showUploadModal();

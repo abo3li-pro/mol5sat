@@ -919,6 +919,22 @@ const _GUEST_ACTION_COPY = {
                 body: 'Share your thoughts and ask questions — creators often reply.' },
   curriculum: { icon: 'fa-graduation-cap', title: 'Your Curriculum Feed is waiting',
                 body: 'Sign in and we\'ll match summaries to your exact grade, school type, and country — no digging through everything else on the platform.' },
+  profile:    { icon: 'fa-id-card',        title: 'Sign in to build your profile',
+                body: 'Your uploads, your followers, everything you\'ve put into Mol5sat — all in one place once you\'re signed in.' },
+  upload:     { icon: 'fa-cloud-arrow-up', title: 'Sign in to upload & start earning',
+                body: 'Turn your notes into a summary students can find and read — and earn from every view once you publish.' },
+  mysaves:    { icon: 'fa-bookmark',       title: 'Sign in to see your Saved list',
+                body: 'Bookmark summaries as you browse and come back to a reading list that\'s actually yours.' },
+  myfollowing:{ icon: 'fa-users',          title: 'Sign in to follow creators',
+                body: 'Keep up with the creators whose summaries you love — their new uploads land right in your feed.' },
+  notifications:{ icon: 'fa-bell',         title: 'Sign in for notifications',
+                body: 'Know the moment someone you follow publishes, or someone replies to your comment.' },
+  earnings:   { icon: 'fa-sack-dollar',    title: 'Sign in and start earning',
+                body: 'Upload a summary once, and earn every time a student reads it. Your notes could be making you money right now.' },
+  wallet:     { icon: 'fa-wallet',         title: 'Sign in for your Wallet',
+                body: 'This is where your Mol5sat earnings live — add a payout method and cash out what you\'ve made.' },
+  settings:   { icon: 'fa-gear',           title: 'Sign in for account settings',
+                body: 'Manage your profile, password, and how Mol5sat works for you.' },
 };
 function showGuestActionBanner(action, subject) {
   document.getElementById('guestGateOverlay')?.remove();

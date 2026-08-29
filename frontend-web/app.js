@@ -474,9 +474,6 @@ function applySortKeys(items, sortArr, user) {
   if (arr.length === 1 && _isModeKey(arr[0])) return sortItems(items, arr[0], user);
   const out = [...items];
   out.sort((a, b) => {
-    const pa = (a.is_promoted ?? a.isPromoted) ? 1 : 0;
-    const pb = (b.is_promoted ?? b.isPromoted) ? 1 : 0;
-    if (pa !== pb) return pb - pa;
     for (const k of arr) {
       const cmp = _comparatorForKey(k);
       if (cmp) { const r = cmp(a, b); if (r !== 0) return r; }
@@ -969,17 +966,24 @@ function cardHTML(s, tag = '') {
   const membershipRequired = s.membership_required ?? s.membershipRequired;
   const authorId = s.author_id || s.authorId || '';
   const au = s.authorData || null;
+  const isOwnCard = STATE.loggedIn && STATE.currentUser && au && au.id === STATE.currentUser.id;
   const canFollow = STATE.loggedIn && au && STATE.currentUser && au.id !== STATE.currentUser.id;
   const following = canFollow ? isFollowing(au.id) : false;
-  const saved = STATE.loggedIn ? !!s.userSaved : false;
   const isNewFromFollowed = canFollow && following && (Date.now() - _ts(s)) < 7 * 24 * 3600 * 1000;
   const memberBadge = membershipRequired
     ? `<span class="badge badge-crown"><i class="fas fa-crown"></i> Member</span>` : '';
+  const escAuName = (au?.name || '').replace(/'/g, "\\'");
   const followBtn = canFollow
     ? `<button class="btn ${following ? 'btn-surf' : 'btn-amber'} btn-sm" data-follow="${au.id}"
          onclick="event.preventDefault();event.stopPropagation();toggleFollow('${au.id}')">
          <i class="fas ${following ? 'fa-check' : 'fa-plus'}"></i> ${following ? 'Following' : 'Follow'}
-       </button>` : '';
+       </button>`
+    : (!STATE.loggedIn && au)
+    ? `<button class="btn btn-amber btn-sm" onclick="event.preventDefault();event.stopPropagation();showGuestActionBanner('follow','${escAuName}')">
+         <i class="fas fa-plus"></i> Follow
+       </button>`
+    : '';
+  const saved = STATE.loggedIn ? !!s.userSaved : false;
   const saveBtn = STATE.loggedIn
     ? `<button class="btn ${saved ? 'btn-amber' : 'btn-surf'} btn-sm card__save-btn" data-save="${s.id}"
          onclick="event.preventDefault();event.stopPropagation();toggleSaveCard('${s.id}',this)" title="${saved ? 'Remove from saved' : 'Save'}">
@@ -1035,9 +1039,13 @@ function cardHTML(s, tag = '') {
         <span class="card__stat"><span class="lang-pill">${(s.lang || 'ar').toUpperCase()}</span></span>
         ${saveBtn}
       </div>
-      ${followBtn ? `<div class="card__follow-row">${followBtn}${au?.has_membership
+      ${isOwnCard
+        ? `<div class="card__follow-row"><span class="btn btn-surf btn-sm" style="cursor:default;opacity:.85;pointer-events:none"><i class="fas fa-user-check"></i> Your Mol5as</span></div>`
+        : followBtn
+        ? `<div class="card__follow-row">${followBtn}${(canFollow && au?.has_membership)
         ? `<button class="btn btn-crown btn-sm" onclick="event.preventDefault();event.stopPropagation();navigate('creator',{id:'${au.id}'})"><i class="fas fa-crown"></i> عضوية</button>` : ''}
-      </div>` : ''}
+      </div>`
+        : ''}
     </div>
   </a>`;
 }

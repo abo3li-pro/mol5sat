@@ -1081,7 +1081,7 @@ async function renderFollowing(root) {
           return `<a href="/user/${f.id}" style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--surf);border:1px solid var(--bord);border-radius:var(--radius);cursor:pointer;transition:.15s;text-decoration:none;color:inherit" onclick="navigate('creator',{id:'${f.id}'});return false;">
             <div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--amber));display:flex;align-items:center;justify-content:center;font-weight:900;color:#000;font-size:13px;font-family:var(--fd)">${ini}</div>
             <div><div style="font-weight:700;font-size:13px">${f.name}</div><div style="font-size:11px;color:var(--text2)">${fmt(f.followers||0)} followers</div></div>
-            <button class="btn btn-surf btn-sm" style="margin-left:8px" data-follow="${f.id}" onclick="event.stopPropagation();toggleFollow('${f.id}')"><i class="fas fa-check"></i> Following</button>
+            <button class="btn btn-surf btn-sm" style="margin-left:8px" data-follow="${f.id}" onclick="event.preventDefault();event.stopPropagation();toggleFollow('${f.id}')"><i class="fas fa-check"></i> Following</button>
           </a>`;
         }).join('')}
       </div>` : `<div style="color:var(--text2);font-size:13px;margin-bottom:22px;padding:16px;background:var(--surf);border:1px solid var(--bord);border-radius:var(--radius)">Not following anyone yet.</div>`}

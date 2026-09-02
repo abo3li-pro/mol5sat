@@ -465,16 +465,84 @@ function _comparatorForKey(key) {
   if (key === 'pages-asc')  return (a,b) => (a.pages||0) - (b.pages||0);
   return null;
 }
-// Applies an array of sort keys. A single mode key delegates to the
-// existing sortItems() algorithm (unchanged behavior); anything else runs
-// as a compound multi-key sort, promoted-first, keys in priority order,
-// with overall engagement as the final tiebreak.
+
+// Keys where the comparator direction represents "more (or less) of a
+// continuous quantity is better" -- these can be converted to a 0..1 score
+// per item and blended together. az/za/lang-* are orderings/categories,
+// not quantities that scale, so they're excluded and stay as ordinary
+// tiebreakers applied after the blend.
+const _BLENDABLE_SORT_KEYS = new Set(['date', 'date-asc', 'likes', 'views', 'pages-desc', 'pages-asc']);
+
+// Percentile rank (0..1, 1 = best per that key's own direction) of every
+// item in `items` for one sort key, using that key's own comparator. Items
+// tied on the raw value share the same averaged percentile, so a cluster
+// of identical values doesn't get an arbitrary tiebreak order baked into
+// the blend.
+function _percentileRanks(items, key) {
+  const scores = new Map();
+  const n = items.length;
+  if (n === 0) return scores;
+  if (n === 1) { scores.set(items[0], 1); return scores; }
+  const cmp = _comparatorForKey(key);
+  if (!cmp) { items.forEach(it => scores.set(it, 0)); return scores; }
+  const order = items.map((_, i) => i).sort((ia, ib) => cmp(items[ia], items[ib]));
+  let i = 0;
+  while (i < n) {
+    let j = i;
+    while (j + 1 < n && cmp(items[order[i]], items[order[j + 1]]) === 0) j++;
+    const percentile = 1 - ((i + j) / 2) / (n - 1);
+    for (let k = i; k <= j; k++) scores.set(items[order[k]], percentile);
+    i = j + 1;
+  }
+  return scores;
+}
+
+// Applies an array of sort keys. A single mode key (recommended/curriculum/
+// advanced) delegates to the existing sortItems() algorithm, unchanged.
+//
+// For everything else, this used to be a strict lexicographic sort: order
+// by the first key, and only fall through to the next key on an EXACT tie.
+// That has two problems in practice. First, real engagement numbers are
+// almost never exactly tied, so a second or third selected key essentially
+// never got a chance to matter -- picking "Top Liked" + "Most Viewed"
+// looked identical to "Top Liked" alone. Second, toggleSortInto appends
+// each newly-clicked key to the END of the array, so whichever key was
+// clicked FIRST silently stayed primary forever, regardless of which one
+// the user most recently (and presumably most intentionally) selected.
+//
+// Both are fixed by blending instead of layering: every selected
+// "quantity" key (likes, views, date, pages) becomes a 0..1 percentile
+// rank per item, and those percentiles are averaged into one combined
+// score. An item that's merely good on both fronts can now genuinely
+// outrank one that's excellent on only one -- a real ratio across the
+// chosen metrics -- and since averaging doesn't care about order, click
+// sequence no longer changes the result. Any remaining non-quantity key
+// (az/za/lang-*) is applied as a plain tiebreaker after the blended score.
 function applySortKeys(items, sortArr, user) {
   const arr = normalizeSortArr(sortArr);
   if (arr.length === 1 && _isModeKey(arr[0])) return sortItems(items, arr[0], user);
+
+  const blendKeys = arr.filter(k => _BLENDABLE_SORT_KEYS.has(k));
+  const otherKeys = arr.filter(k => !_BLENDABLE_SORT_KEYS.has(k));
+
+  let blended = null;
+  if (blendKeys.length) {
+    const perKey = blendKeys.map(k => _percentileRanks(items, k));
+    blended = new Map();
+    items.forEach(it => {
+      let sum = 0;
+      for (const m of perKey) sum += (m.get(it) ?? 0);
+      blended.set(it, sum / perKey.length);
+    });
+  }
+
   const out = [...items];
   out.sort((a, b) => {
-    for (const k of arr) {
+    if (blended) {
+      const r = blended.get(b) - blended.get(a);
+      if (Math.abs(r) > 1e-9) return r;
+    }
+    for (const k of otherKeys) {
       const cmp = _comparatorForKey(k);
       if (cmp) { const r = cmp(a, b); if (r !== 0) return r; }
     }
